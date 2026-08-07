@@ -30,9 +30,12 @@ npm run db:migrate           # applies db/schema.sql to your Postgres instance
 npm run dev                  # http://localhost:3000
 ```
 
-Database: use either [Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres)
-or [Supabase](https://supabase.com) — both are plain Postgres, so
-`POSTGRES_URL`/`DATABASE_URL` is all the app needs.
+Database: default is [Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres)
+(Vercel dashboard -> Storage -> Create Database -> Postgres -> connect it to
+this project). It auto-injects `POSTGRES_URL` into the project's env vars;
+run `vercel env pull .env.local` to get it locally. [Supabase](https://supabase.com)
+also works as a drop-in alternative — both are plain Postgres, so the app
+only needs a standard connection string in `POSTGRES_URL`/`DATABASE_URL`.
 
 ### Extension (`/extension`)
 
