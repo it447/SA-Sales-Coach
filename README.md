@@ -5,7 +5,7 @@ and coaches reps live: scoping roles, catching scope creep, calculating
 margin, suggesting objection handling, and generating job descriptions once
 a deal is priced. In-house replacement for paid tools like Gong/Woz —
 internal use only, no external end users. Payment/invoicing is out of scope
-for this tool and happens elsewhere.
+for this tool and happens elsewhere .
 
 ## Repo layout
 
