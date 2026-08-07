@@ -1,0 +1,17 @@
+{
+  "name": "sa-sales-coach",
+  "private": true,
+  "description": "Monorepo for Deal Assistant: a Chrome extension + Next.js backend that coaches sales reps live on Google Meet calls.",
+  "workspaces": [
+    "web",
+    "extension"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
