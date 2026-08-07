@@ -2,9 +2,10 @@
 
 An internal Chrome extension that joins our sales team's Google Meet calls
 and coaches reps live: scoping roles, catching scope creep, calculating
-margin, suggesting objection handling, and generating deliverables (JDs,
-payment links) once a deal is priced. In-house replacement for paid tools
-like Gong/Woz — internal use only, no external end users.
+margin, suggesting objection handling, and generating job descriptions once
+a deal is priced. In-house replacement for paid tools like Gong/Woz —
+internal use only, no external end users. Payment/invoicing is out of scope
+for this tool and happens elsewhere.
 
 ## Repo layout
 
@@ -14,9 +15,8 @@ This is a monorepo with two workspaces:
   `meet.google.com`, reads live captions, and renders the coaching sidebar.
   Talks only to `/web`'s API — it has no direct database or LLM access.
 - **`/web`** — the backend, a Next.js app deployed to Vercel. Holds the
-  database, calls the Anthropic API, and talks to Stripe. See
-  `web/lib/types.ts` for the core `CallSession` data model and
-  `web/db/schema.sql` for the Postgres schema.
+  database and calls the Anthropic API. See `web/lib/types.ts` for the core
+  `CallSession` data model and `web/db/schema.sql` for the Postgres schema.
 
 ## Running locally
 
@@ -24,7 +24,7 @@ This is a monorepo with two workspaces:
 
 ```bash
 cd web
-cp .env.example .env.local   # fill in POSTGRES_URL, ANTHROPIC_API_KEY, STRIPE_SECRET_KEY, INTERNAL_API_KEY
+cp .env.example .env.local   # fill in POSTGRES_URL, ANTHROPIC_API_KEY, INTERNAL_API_KEY
 npm install
 npm run db:migrate           # applies db/schema.sql to your Postgres instance
 npm run dev                  # http://localhost:3000

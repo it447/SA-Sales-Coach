@@ -9,8 +9,7 @@ export type CallSessionStatus =
   | "scoping"
   | "scope_flagged"
   | "priced"
-  | "jd_ready"
-  | "paid";
+  | "jd_ready";
 
 export interface TranscriptChunk {
   timestamp: string;
@@ -58,8 +57,4 @@ export interface CallSession {
     lockedAt: string | null;
   };
   jds: JobDescription[];
-  payment: {
-    stripeLinkUrl: string | null;
-    status: "unpaid" | "sent" | "paid";
-  };
 }

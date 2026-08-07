@@ -9,16 +9,19 @@ create extension if not exists "pgcrypto";
 --
 -- One row per sales call. Most of the CallSession shape (see lib/types.ts)
 -- is stored as jsonb because it's nested/variable-shaped (roles, flags,
--- quote, jds, payment, transcript) and we always read/write it as one
--- object from the API layer anyway. status/meet_link/rep_email are broken
--- out as real columns because the dashboard (Phase 4) filters/sorts on them.
+-- quote, jds, transcript) and we always read/write it as one object from
+-- the API layer anyway. status/meet_link/rep_email are broken out as real
+-- columns because the dashboard (Phase 4) filters/sorts on them.
+--
+-- No payment tracking here — this tool ends at JD generation. Invoicing/
+-- payment happens outside it.
 -- ---------------------------------------------------------------------------
 create table if not exists call_sessions (
   id           uuid primary key default gen_random_uuid(),
   meet_link    text not null,
   rep_email    text not null,
   status       text not null default 'scoping'
-               check (status in ('scoping', 'scope_flagged', 'priced', 'jd_ready', 'paid')),
+               check (status in ('scoping', 'scope_flagged', 'priced', 'jd_ready')),
   started_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
 
@@ -27,25 +30,24 @@ create table if not exists call_sessions (
   scope_flags  jsonb not null default '[]'::jsonb,
 
   quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "lockedAt": null}'::jsonb,
-  jds          jsonb not null default '[]'::jsonb,
-  payment      jsonb not null default '{"stripeLinkUrl": null, "status": "unpaid"}'::jsonb
+  jds          jsonb not null default '[]'::jsonb
 );
 
 create index if not exists call_sessions_rep_email_idx on call_sessions (rep_email);
 create index if not exists call_sessions_status_idx on call_sessions (status);
 
 -- ---------------------------------------------------------------------------
--- Enforce the "only generate JD + payment after price is locked" rule at the
+-- Enforce the "only generate JDs after price is finalized" rule at the
 -- database layer, not just in the API route. If any API code path forgets
 -- the lockedAt check, the write fails loudly instead of silently corrupting
 -- state.
 -- ---------------------------------------------------------------------------
-create or replace function enforce_lock_before_jds_or_payment()
+create or replace function enforce_lock_before_jds()
 returns trigger as $$
 begin
-  if (new.jds is distinct from old.jds or new.payment is distinct from old.payment)
+  if (new.jds is distinct from old.jds)
      and (new.quote ->> 'lockedAt') is null then
-    raise exception 'Cannot write jds/payment before quote.lockedAt is set (session %)', new.id;
+    raise exception 'Cannot write jds before quote.lockedAt is set (session %)', new.id;
   end if;
 
   new.updated_at = now();
@@ -53,11 +55,11 @@ begin
 end;
 $$ language plpgsql;
 
-drop trigger if exists trg_enforce_lock_before_jds_or_payment on call_sessions;
-create trigger trg_enforce_lock_before_jds_or_payment
+drop trigger if exists trg_enforce_lock_before_jds on call_sessions;
+create trigger trg_enforce_lock_before_jds
   before update on call_sessions
   for each row
-  execute function enforce_lock_before_jds_or_payment();
+  execute function enforce_lock_before_jds();
 
 -- ---------------------------------------------------------------------------
 -- pricing_data

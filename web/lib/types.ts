@@ -10,8 +10,7 @@ export type CallSessionStatus =
   | "scoping"
   | "scope_flagged"
   | "priced"
-  | "jd_ready"
-  | "paid";
+  | "jd_ready";
 
 export interface TranscriptChunk {
   timestamp: string;
@@ -55,15 +54,8 @@ export interface QuoteState {
   marginPct: number | null;
   dealWorthIt: boolean | null;
   finalPrice: number | null;
-  /** Set only when the rep explicitly confirms price with the client. This is the gate for jds/payment. */
+  /** Set only when the rep explicitly confirms price with the client. This is the gate for jds. */
   lockedAt: string | null;
-}
-
-export type PaymentStatus = "unpaid" | "sent" | "paid";
-
-export interface PaymentState {
-  stripeLinkUrl: string | null;
-  status: PaymentStatus;
 }
 
 export interface CallSession {
@@ -80,7 +72,6 @@ export interface CallSession {
   quote: QuoteState;
 
   jds: JobDescription[];
-  payment: PaymentState;
 }
 
 /** Row shape for the pricing_data table (mirrors the legacy pricing calculator's policies.json). */
