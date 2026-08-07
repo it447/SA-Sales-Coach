@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Deal Assistant (Internal)",
+  "version": "0.1.0",
+  "description": "Live sales-call coaching sidebar for Google Meet. Internal tool — not for external distribution.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["dist/content.js"],
+      "css": ["dist/content.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  }
+}
