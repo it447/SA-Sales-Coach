@@ -14,7 +14,14 @@ seniority range, not two roles. Different titles = always separate roles.")_
 
 ## Required fields before a role is considered "scoped"
 
-_(TODO: e.g. "title, seniority, region, and at least 2 must-have skills.")_
+- `title`, `seniority`, and `region` are required.
+- `region` must be explicitly `"Africa"`, `"LATAM"`, or `"Both"` — only set
+  `"Both"` when the client has actually said region doesn't matter to them.
+  Don't default to `"Both"` just because it wasn't mentioned; if the
+  transcript hasn't addressed region yet, leave it `null` and flag
+  `missing_field` so the rep asks.
+
+_(TODO: add any additional required fields, e.g. minimum must-have skill count.)_
 
 ## Objection-handling playbook
 
@@ -24,5 +31,18 @@ relevant one based on transcript language.)_
 
 ## Budget mismatch signals
 
-_(TODO: e.g. "If client states a budget below our minMargin floor for the
-matched pricing_data row, flag budget_mismatch.")_
+Reference thresholds pulled from the legacy `scale-army-jd-tool` agent's
+financial review step (same underlying formula as `web/lib/pricing.ts`):
+margin = (client_budget - salary) / client_budget.
+
+- Flag `budget_mismatch` if the client's stated budget is below the matched
+  pricing_data row's `salary` outright (budget doesn't even cover cost).
+- Flag `budget_mismatch` if margin at the client's budget would be below
+  0.22 (absolute floor) or below the matched row's `minMargin` (role-specific
+  floor) — whichever is higher.
+- Flag `budget_mismatch` (as a "too high" variant) if margin at the client's
+  budget would exceed 0.50 — worth a gut-check with the client rather than
+  quietly taking the win.
+
+_(TODO: confirm these thresholds are still current — they're carried over
+from the old tools, not re-confirmed for this one.)_
