@@ -29,21 +29,24 @@ export function getCommissionTier(margin: number, spread: number): CommissionTie
 /**
  * Finds the pricing_data row for a scoped role.
  *
- * ASSUMPTION (flag if wrong): matches on title + seniority only, case
- * insensitive. RoleScope has no region field (per the original data model),
- * so when a title+seniority pair exists in both Africa and LATAM, this picks
- * the cheaper (lower salary) row as the conservative default. If reps need
- * to pick a region explicitly during the call, that'll need a region field
- * added to RoleScope — flag if so.
+ * Matches on title + seniority (case-insensitive), then narrows by region:
+ * - role.region is "Africa" or "LATAM" -> only rows in that region.
+ * - role.region is "Both" (client explicitly doesn't care) or null (not
+ *   asked yet) -> any region, picking the cheaper (lower salary) row as the
+ *   conservative default.
  */
 function matchPricingRow(role: RoleScope, pricingData: PricingDataRow[]): PricingDataRow | null {
   if (!role.title || !role.seniority) return null;
 
-  const candidates = pricingData.filter(
+  let candidates = pricingData.filter(
     (row) =>
       row.role.toLowerCase() === role.title!.toLowerCase() &&
       row.seniority.toLowerCase() === role.seniority!.toLowerCase()
   );
+
+  if (role.region && role.region !== "Both") {
+    candidates = candidates.filter((row) => row.region.toLowerCase() === role.region!.toLowerCase());
+  }
 
   if (candidates.length === 0) return null;
   return candidates.reduce((cheapest, row) => (row.salary < cheapest.salary ? row : cheapest));
@@ -62,7 +65,9 @@ function matchPricingRow(role: RoleScope, pricingData: PricingDataRow[]): Pricin
  *
  * Returns nulls if any role isn't scoped enough yet to price (missing
  * title/seniority, or no matching pricing_data row) — the caller should
- * treat that as "not ready to quote."
+ * treat that as "not ready to quote." Region isn't required here (falls
+ * back to the cheaper region if unset) even though it's still a required
+ * field for a role to count as fully "scoped" — see scoping-rules.md.
  */
 export function calculateMargin(
   roles: RoleScope[],

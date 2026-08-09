@@ -17,10 +17,14 @@ export interface TranscriptChunk {
   text: string;
 }
 
+/** "Both" = client explicitly doesn't care which region; null = not asked/known yet. */
+export type RoleRegion = "Africa" | "LATAM" | "Both";
+
 export interface RoleScope {
   id: string;
   title: string | null;
   seniority: string | null;
+  region: RoleRegion | null;
   mustHaves: string[];
   niceToHaves: string[];
   confidence: number;

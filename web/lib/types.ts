@@ -19,10 +19,18 @@ export interface TranscriptChunk {
   text: string;
 }
 
+/**
+ * "Both" means the client explicitly doesn't care which region the hire
+ * comes from — not the same as null (not asked about / not yet known).
+ */
+export type RoleRegion = "Africa" | "LATAM" | "Both";
+
 export interface RoleScope {
   id: string;
   title: string | null;
   seniority: string | null;
+  /** null until asked/stated — a role isn't considered fully scoped without it. */
+  region: RoleRegion | null;
   mustHaves: string[];
   niceToHaves: string[];
   /** 0-1 confidence that this extraction is accurate/complete. */

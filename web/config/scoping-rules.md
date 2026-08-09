@@ -14,7 +14,14 @@ seniority range, not two roles. Different titles = always separate roles.")_
 
 ## Required fields before a role is considered "scoped"
 
-_(TODO: e.g. "title, seniority, region, and at least 2 must-have skills.")_
+- `title`, `seniority`, and `region` are required.
+- `region` must be explicitly `"Africa"`, `"LATAM"`, or `"Both"` — only set
+  `"Both"` when the client has actually said region doesn't matter to them.
+  Don't default to `"Both"` just because it wasn't mentioned; if the
+  transcript hasn't addressed region yet, leave it `null` and flag
+  `missing_field` so the rep asks.
+
+_(TODO: add any additional required fields, e.g. minimum must-have skill count.)_
 
 ## Objection-handling playbook
 
