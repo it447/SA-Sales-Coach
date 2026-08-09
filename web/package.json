@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "node db/migrate.mjs"
+    "db:migrate": "node db/migrate.mjs",
+    "db:seed-pricing": "node db/seed-pricing.mjs"
   },
   "dependencies": {
     "next": "14.2.35",

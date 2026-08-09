@@ -25,9 +25,26 @@ _(TODO: add any additional required fields, e.g. minimum must-have skill count.)
 
 ## Objection-handling playbook
 
-_(TODO: paste our standard responses to price objections, "we already use X"
-competitor objections, timeline pushback, etc. Claude will surface the
-relevant one based on transcript language.)_
+Generic placeholder — replace with our real playbook once we have one.
+Claude should still surface a suggestion whenever it hears pushback
+language, using this as a fallback tone/structure guide in the meantime.
+
+- **Price objection** ("that's too expensive", "over budget"): acknowledge
+  the concern, reframe on value/outcome rather than discounting
+  immediately, and offer to walk through what's included before touching
+  the number.
+- **Competitor objection** ("we already use X", "we're happy with our
+  current provider"): ask what's working and what isn't with the current
+  solution before pitching against it — don't attack the competitor by
+  name.
+- **Timeline pushback** ("we need to think about it", "let's revisit next
+  quarter"): identify the specific blocker (budget approval, internal
+  buy-in, etc.) rather than accepting a vague delay, and propose a concrete
+  next step with a date.
+- **General rule**: never suggest a specific discount or price change as an
+  objection response — that's the rep's call, not something to auto-suggest.
+
+_(TODO: replace with our actual standard responses once we have them.)_
 
 ## Budget mismatch signals
 
