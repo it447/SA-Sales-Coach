@@ -8,7 +8,7 @@ const nextConfig = {
     // router routes isn't well documented — this just includes them
     // everywhere under /api, which costs nothing meaningful.
     outputFileTracingIncludes: {
-      "/api/**": ["./db/schema.sql", "./config/*.md"],
+      "/api/**": ["./db/*.sql", "./config/*.md"],
     },
   },
 };
