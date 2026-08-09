@@ -59,8 +59,19 @@ the extension has real functionality (Phase 3+).
 `.github/workflows/ci.yml` runs `npm run lint` and `npm run typecheck`
 across both workspaces on every push and pull request.
 
+## API routes (Phase 2)
+
+All under `web/app/api/sessions`, auth'd via `Authorization: Bearer <INTERNAL_API_KEY>`:
+
+- `POST /api/sessions` — create a session (`{ meetLink, repEmail }`)
+- `GET /api/sessions/:id` — full session state (polled by the extension)
+- `POST /api/sessions/:id/transcript` — append transcript chunks (`{ chunks: TranscriptChunk[] }`)
+- `POST /api/sessions/:id/extract` — runs Claude over the transcript, updates `roles`/`scopeFlags`, returns live `objectionSuggestions` (not persisted)
+- `POST /api/sessions/:id/quote` — runs `calculateMargin()` against `pricing_data`, updates `quote` (never sets `lockedAt`)
+- `POST /api/sessions/:id/lock-price` — rep-triggered, sets `quote.lockedAt` and status `priced`
+- `POST /api/sessions/:id/generate-jds` — only if `quote.lockedAt` is set; drafts a JD per role via Claude using `web/config/jd-template.md`, sets status `jd_ready`
+
 ## Status
 
-Phase 0 (repo scaffolding) and Phase 1 (data model) are done. See
-`web/lib/types.ts` and `web/db/schema.sql`. Phase 2 (API routes), Phase 3
-(extension UI), and Phase 4 (dashboard/polish) are next.
+Phase 0 (repo scaffolding), Phase 1 (data model), and Phase 2 (API routes)
+are done. Phase 3 (extension UI) and Phase 4 (dashboard/polish) are next.

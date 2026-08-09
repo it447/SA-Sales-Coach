@@ -1,11 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    // Makes sure db/schema.sql is bundled into the serverless function for
-    // /api/admin/migrate, since it's read at runtime via fs rather than
-    // imported as a module.
+    // Makes sure db/schema.sql and the config/*.md prompt docs are bundled
+    // into serverless functions that read them via fs at runtime (rather
+    // than importing them as modules). Using a broad "/api/**" key instead
+    // of per-route keys since exact key-to-route matching for dynamic app
+    // router routes isn't well documented — this just includes them
+    // everywhere under /api, which costs nothing meaningful.
     outputFileTracingIncludes: {
-      "/api/admin/migrate": ["./db/schema.sql"],
+      "/api/**": ["./db/schema.sql", "./config/*.md"],
     },
   },
 };
