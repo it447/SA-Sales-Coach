@@ -51,8 +51,8 @@ Then load it unpacked in Chrome:
 2. Enable "Developer mode" (top right)
 3. Click "Load unpacked" and select the `extension/` folder
 
-See `extension/README.md` for the day-to-day install doc reps will use once
-the extension has real functionality (Phase 3+).
+See `extension/README.md` for the day-to-day setup doc reps use — API key
+config, starting a call, and the known caveat around caption scraping.
 
 ## CI
 
@@ -67,11 +67,13 @@ All under `web/app/api/sessions`, auth'd via `Authorization: Bearer <INTERNAL_AP
 - `GET /api/sessions/:id` — full session state (polled by the extension)
 - `POST /api/sessions/:id/transcript` — append transcript chunks (`{ chunks: TranscriptChunk[] }`)
 - `POST /api/sessions/:id/extract` — runs Claude over the transcript, updates `roles`/`scopeFlags`, returns live `objectionSuggestions` (not persisted)
+- `POST /api/sessions/:id/roles` — overwrites the roles array directly (manual correction from the sidebar)
+- `POST /api/sessions/:id/scope-flags` — overwrites the scope flags array directly (e.g. the sidebar's "Resolve" button)
 - `POST /api/sessions/:id/quote` — runs `calculateMargin()` against `pricing_data`, updates `quote` (never sets `lockedAt`)
 - `POST /api/sessions/:id/lock-price` — rep-triggered, sets `quote.lockedAt` and status `priced`
 - `POST /api/sessions/:id/generate-jds` — only if `quote.lockedAt` is set; drafts a JD per role via Claude using `web/config/jd-template.md`, sets status `jd_ready`
 
 ## Status
 
-Phase 0 (repo scaffolding), Phase 1 (data model), and Phase 2 (API routes)
-are done. Phase 3 (extension UI) and Phase 4 (dashboard/polish) are next.
+Phase 0 (repo scaffolding), Phase 1 (data model), Phase 2 (API routes),
+and Phase 3 (extension UI) are done. Phase 4 (dashboard/polish) is next.
