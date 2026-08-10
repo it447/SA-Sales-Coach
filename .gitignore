@@ -1,5 +1,6 @@
 node_modules/
 dist/
+extension/deal-assistant-extension.zip
 .next/
 .vercel/
 *.tsbuildinfo
