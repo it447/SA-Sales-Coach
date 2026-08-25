@@ -1,20 +1,25 @@
 /**
  * Live-caption scraping for Google Meet.
  *
- * CAVEAT: Meet has no public API or stable selectors for its caption DOM —
- * this uses the one reasonably stable signal available: caption regions are
- * marked with `aria-live` (an accessibility attribute, since captions need
- * to be announced to screen readers). This has worked across multiple past
- * Meet DOM overhauls because Google can't remove it without breaking
- * accessibility, but it CAN still break if Meet changes how it structures
- * caption updates. If captions stop being detected after a Meet UI update,
- * this is the first place to look — inspect the DOM while captions are on
- * and adjust the selector below.
+ * CAVEAT: Meet has no public API for its caption DOM. Confirmed by direct
+ * inspection (2026-08): the captions container is
+ * `div[role="region"][aria-label="Captions"]` — NOT `aria-live`, despite
+ * that being the usual accessibility pattern for this kind of live-updating
+ * text (our first guess, which didn't match anything real). We read the
+ * whole region's text as one blob rather than depending on Google's
+ * obfuscated inner class names (e.g. `ygicle`, `VbkSUe`), since those are
+ * far more likely to change between Meet deployments than the semantic
+ * role/aria-label. Also keep the original aria-live selector as a
+ * fallback in case Meet uses it in some other layout/locale we haven't
+ * seen. If captions stop being detected after a Meet UI update, this is
+ * the first place to look — inspect the DOM while captions are on and
+ * adjust the selector below.
  */
 
 export type OnCaptionText = (text: string) => void;
 
-const ARIA_LIVE_SELECTOR = '[aria-live="polite"], [aria-live="assertive"]';
+const CAPTIONS_SELECTOR =
+  'div[role="region"][aria-label="Captions"], [aria-live="polite"], [aria-live="assertive"]';
 
 export class CaptionWatcher {
   private observer: MutationObserver | null = null;
@@ -47,7 +52,7 @@ export class CaptionWatcher {
   }
 
   private scan(): void {
-    const nodes = document.querySelectorAll<HTMLElement>(ARIA_LIVE_SELECTOR);
+    const nodes = document.querySelectorAll<HTMLElement>(CAPTIONS_SELECTOR);
     nodes.forEach((node) => {
       const text = node.textContent?.trim() ?? "";
       if (!text) return;
