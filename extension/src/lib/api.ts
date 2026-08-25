@@ -1,29 +1,35 @@
 import type { ExtensionConfig } from "./storage";
 import type { CallSession, RoleScope, ScopeFlag, TranscriptChunk } from "../types";
+import type { ApiFetchRequest, ApiFetchResponse } from "./messages";
 
 export class ApiError extends Error {}
 
+/**
+ * Routes every API call through the background service worker instead of
+ * fetching directly — see messages.ts for why. Works the same whether
+ * called from the content script or the popup.
+ */
 async function apiFetch<T>(
   config: ExtensionConfig,
   path: string,
-  options: RequestInit = {}
+  options: { method?: string; body?: string } = {}
 ): Promise<T> {
-  const res = await fetch(`${config.apiBaseUrl}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-      ...options.headers,
-    },
-  });
+  const request: ApiFetchRequest = {
+    type: "DEAL_ASSISTANT_API_FETCH",
+    apiBaseUrl: config.apiBaseUrl,
+    apiKey: config.apiKey,
+    path,
+    method: options.method,
+    body: options.body,
+  };
 
-  const body = await res.json().catch(() => ({}));
+  const response = (await chrome.runtime.sendMessage(request)) as ApiFetchResponse;
 
-  if (!res.ok) {
-    throw new ApiError(body?.error || `Request to ${path} failed with status ${res.status}`);
+  if (!response.success) {
+    throw new ApiError(response.error);
   }
 
-  return body as T;
+  return response.data as T;
 }
 
 export function createSession(config: ExtensionConfig, meetLink: string): Promise<CallSession> {

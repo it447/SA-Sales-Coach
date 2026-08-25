@@ -52,7 +52,12 @@ const EXTRACT_TOOL: Anthropic.Tool = {
                 "Copy the id EXACTLY from Current Roles if this is the same role being discussed further. Use null only for a genuinely new role not in Current Roles.",
             },
             title: { type: ["string", "null"] },
-            seniority: { type: ["string", "null"] },
+            seniority: {
+              type: ["string", "null"],
+              enum: ["Junior", "Mid-Level", "Senior", "Senior+", "Senior++", "Senior+++", null],
+              description:
+                "MUST be exactly one of these values, not a free-text description — these are the only seniority levels that exist in our pricing data, and pricing lookup fails silently if this doesn't match exactly. Map years of experience: 0-2 yrs = Junior, 2-4 yrs = Mid-Level, 4-7 yrs = Senior, 7-10 yrs = Senior+, 10-15 yrs = Senior++, 15+ yrs = Senior+++. null if not addressed yet.",
+            },
             region: {
               type: ["string", "null"],
               enum: ["Africa", "LATAM", "Both", null],
