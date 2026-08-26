@@ -200,6 +200,12 @@ export class Sidebar {
 
     const s = this.session;
 
+    // render() rebuilds the whole panel via innerHTML on every poll tick
+    // (every ~2s during a call), which resets scroll to the top each time
+    // unless we capture and restore it — otherwise the rep gets yanked back
+    // to the top mid-scroll, e.g. while trying to reach "Calculate Price".
+    const previousScrollTop = this.root.querySelector(".panel")?.scrollTop ?? 0;
+
     this.root.innerHTML = `
       <div class="panel">
         <div class="panel-header">
@@ -211,6 +217,9 @@ export class Sidebar {
         ${!s ? `<p class="muted">No active session for this call yet. Click the Deal Assistant icon in your toolbar to start one.</p>` : this.renderSession(s)}
       </div>
     `;
+
+    const panel = this.root.querySelector(".panel");
+    if (panel) panel.scrollTop = previousScrollTop;
   }
 
   private renderSession(s: CallSession): string {
@@ -335,15 +344,27 @@ export class Sidebar {
   }
 
   private renderQuote(s: CallSession): string {
-    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, monthlySavings, annualSavings, lockedAt } =
-      s.quote;
+    const {
+      marginPct,
+      dealWorthIt,
+      finalPrice,
+      tier,
+      recommendations,
+      monthlySavings,
+      annualSavings,
+      lockedAt,
+      pricedRoleCount,
+      totalRoleCount,
+    } = s.quote;
+    const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
     return `
       <div class="card">
         <h3>Pricing</h3>
         ${
           finalPrice !== null
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
-               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
+               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>
+               ${isPartial ? `<p class="muted">Partial quote — ${pricedRoleCount} of ${totalRoleCount} roles priced. The rest need more info before they're included.</p>` : ""}`
             : `<p class="muted">Not priced yet.</p>`
         }
         ${

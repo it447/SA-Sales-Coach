@@ -175,6 +175,9 @@ export interface QuoteState {
   tier: CommissionTierName | null;
   /** Non-null whenever the deal isn't already Safe-Strong or Hero. */
   recommendations: QuoteRecommendations | null;
+  /** How many of the call's roles actually contributed to finalPrice — less than totalRoleCount means this is a partial quote. */
+  pricedRoleCount: number;
+  totalRoleCount: number;
   /**
    * What a comparable USA hire would typically cost, for the "client
    * savings" comparison. null unless every role has a usaBenchmarkRole

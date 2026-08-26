@@ -102,6 +102,8 @@ export interface CallSession {
     finalPrice: number | null;
     tier: CommissionTierName | null;
     recommendations: QuoteRecommendations | null;
+    pricedRoleCount: number;
+    totalRoleCount: number;
     usaSalary: number | null;
     monthlySavings: number | null;
     annualSavings: number | null;

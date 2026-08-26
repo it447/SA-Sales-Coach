@@ -30,7 +30,7 @@ create table if not exists call_sessions (
   scope_flags  jsonb not null default '[]'::jsonb,
   call_phases  jsonb not null default '{"agendaSet": false, "discoveryCovered": false, "consultativeDiagnosisGiven": false, "processExplained": false, "pricingDiscussed": false, "closeAttempted": false}'::jsonb,
 
-  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
+  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "pricedRoleCount": 0, "totalRoleCount": 0, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb
 );
 
