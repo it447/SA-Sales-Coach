@@ -345,7 +345,7 @@ export class Sidebar {
               </div>
               <div class="field"><label>Must-haves (comma separated)</label><input name="mustHaves" value="${escapeAttr(role.mustHaves.join(", "))}" /></div>
               <div class="field"><label>Nice-to-haves (comma separated)</label><input name="niceToHaves" value="${escapeAttr(role.niceToHaves.join(", "))}" /></div>
-              <div class="field"><label>Client budget/mo (blank if not stated)</label><input name="clientBudget" type="number" value="${role.clientBudget !== null ? role.clientBudget : ""}" /></div>
+              <div class="field"><label>Client budget/mo (blank if not stated)</label><input name="clientBudget" type="number" value="${typeof role.clientBudget === "number" ? role.clientBudget : ""}" /></div>
               <button data-action="save-role" data-role-id="${role.id}">Save</button>
               <button class="secondary" data-action="cancel-edit">Cancel</button>
             </div>
@@ -357,7 +357,7 @@ export class Sidebar {
             <p class="muted">${escapeHtml(role.seniority ?? "Seniority unknown")} · ${escapeHtml(role.region ?? "Region unknown")}</p>
             ${role.mustHaves.length ? `<p class="muted">Must-haves: ${escapeHtml(role.mustHaves.join(", "))}</p>` : ""}
             ${role.niceToHaves.length ? `<p class="muted">Nice-to-haves: ${escapeHtml(role.niceToHaves.join(", "))}</p>` : ""}
-            ${role.clientBudget !== null ? `<p class="muted">Client budget: ${fmt(role.clientBudget)}/mo</p>` : ""}
+            ${typeof role.clientBudget === "number" ? `<p class="muted">Client budget: ${fmt(role.clientBudget)}/mo</p>` : ""}
             <button class="secondary" data-action="edit-role" data-role-id="${role.id}">Edit</button>
           </div>
         `;

@@ -287,8 +287,10 @@ export function calculateMargin(
 
   // Only meaningful when every priced role has a stated number — a partial
   // sum (e.g. one role's budget plus another role with none) would be a
-  // fabricated total, not something the client actually said.
-  const atClientBudget: AtClientBudget | null = pricedRoles.every((role) => role.clientBudget !== null)
+  // fabricated total, not something the client actually said. typeof check
+  // (not !== null) because roles scoped before this field existed have no
+  // clientBudget key at all — undefined, not null.
+  const atClientBudget: AtClientBudget | null = pricedRoles.every((role) => typeof role.clientBudget === "number")
     ? (() => {
         const budget = pricedRoles.reduce((sum, role) => sum + (role.clientBudget as number), 0);
         if (budget <= 0) return null;
