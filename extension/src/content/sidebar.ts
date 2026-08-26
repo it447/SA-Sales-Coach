@@ -35,14 +35,14 @@ export class Sidebar {
   // it overlaps whatever they're presenting, since Meet has no idea our
   // panel exists and doesn't reflow around it. Starts collapsed to a
   // small tab; the rep expands it when they actually want to look at it.
-  private collapsed = true;
+  private collapsed = false;
 
   constructor(callbacks: SidebarCallbacks) {
     this.callbacks = callbacks;
 
     this.host = document.createElement("div");
     this.host.id = "deal-assistant-sidebar-host";
-    this.host.style.cssText = "position: fixed; top: 0; right: 0; z-index: 999999;";
+    this.host.style.cssText = "position: fixed; top: 0; right: 0; z-index: 2147483647; pointer-events: auto;";
     document.body.appendChild(this.host);
 
     this.shadow = this.host.attachShadow({ mode: "open" });
@@ -56,16 +56,16 @@ export class Sidebar {
   }
 
   private async loadCollapsedState(): Promise<void> {
-    const result = await chrome.storage.local.get("dealAssistantSidebarCollapsed");
-    if (typeof result.dealAssistantSidebarCollapsed === "boolean") {
-      this.collapsed = result.dealAssistantSidebarCollapsed;
-      this.render();
-    }
+    // Every fresh page load starts expanded regardless of what was saved
+    // last time — a stale "collapsed" preference from a previous call must
+    // never leave the rep with no visible way to open the panel again.
+    // Manual minimizing during the current page's session still works via
+    // setCollapsed(); we just don't carry a collapsed state across reloads.
+    await chrome.storage.local.remove("dealAssistantSidebarCollapsed");
   }
 
   private setCollapsed(collapsed: boolean): void {
     this.collapsed = collapsed;
-    chrome.storage.local.set({ dealAssistantSidebarCollapsed: collapsed });
     this.render();
   }
 
@@ -296,19 +296,56 @@ export class Sidebar {
   }
 
   private renderQuote(s: CallSession): string {
-    const { marginPct, dealWorthIt, finalPrice, lockedAt } = s.quote;
+    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, monthlySavings, annualSavings, lockedAt } =
+      s.quote;
     return `
       <div class="card">
         <h3>Pricing</h3>
         ${
           finalPrice !== null
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
-               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
+               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
             : `<p class="muted">Not priced yet.</p>`
         }
+        ${
+          monthlySavings !== null && annualSavings !== null
+            ? `<p style="color:${colors.greenAccent}">Client saves <strong>${fmt(monthlySavings)}/mo</strong> vs. a US hire (${fmt(annualSavings)}/yr)</p>`
+            : ""
+        }
+        ${this.renderRecommendations(recommendations)}
         ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>Calculate Price</button>` : ""}
         ${finalPrice !== null && !lockedAt ? `<button data-action="lock-price" ${this.busy ? "disabled" : ""}>Lock Price With Client</button>` : ""}
         ${lockedAt ? `<p class="muted">Locked ${new Date(lockedAt).toLocaleTimeString()}</p>` : ""}
+      </div>
+    `;
+  }
+
+  private renderRecommendations(recommendations: CallSession["quote"]["recommendations"]): string {
+    if (!recommendations) return "";
+    const { toSafeStrong, toHero, lowerSeniority } = recommendations;
+    if (!toSafeStrong && !toHero && !lowerSeniority) return "";
+
+    const lines: string[] = [];
+    if (toSafeStrong) {
+      lines.push(
+        `To make this a <strong>Safe-Strong</strong> deal: raise the price to <strong>${fmt(toSafeStrong.priceNeeded)}</strong> (+${fmt(toSafeStrong.priceIncrease)}).`
+      );
+    }
+    if (toHero) {
+      lines.push(
+        `To make this a <strong>Hero</strong> deal: raise the price to <strong>${fmt(toHero.priceNeeded)}</strong> (+${fmt(toHero.priceIncrease)}).`
+      );
+    }
+    if (lowerSeniority) {
+      lines.push(
+        `Or scope ${escapeHtml(lowerSeniority.roleTitle ?? "this role")} as <strong>${escapeHtml(lowerSeniority.suggestedSeniority)}</strong> instead of ${escapeHtml(lowerSeniority.currentSeniority)}: margin becomes ${fmtPct(lowerSeniority.newMarginPct)} (${escapeHtml(lowerSeniority.newTier)}) at ${fmt(lowerSeniority.newFinalPrice)}.`
+      );
+    }
+
+    return `
+      <div class="banner" style="margin-top:0.5rem">
+        <strong>Recommendations</strong>
+        <ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>
       </div>
     `;
   }

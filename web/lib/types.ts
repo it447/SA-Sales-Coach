@@ -6,6 +6,78 @@
  * if you change something here, update that file too.
  */
 
+/**
+ * The 63 role categories in usa_benchmark_data that have a USA salary
+ * figure — see db/seed-usa-benchmark.sql. Kept here as the single source of
+ * truth so both the extraction prompt (lib/anthropic.ts) and the DB seed
+ * script agree on exactly what's valid for RoleScope.usaBenchmarkRole.
+ */
+export const USA_BENCHMARK_ROLES = [
+  "AI Engineering",
+  "Account Executive",
+  "Account Management",
+  "Accountant",
+  "Ad Creative Strategist",
+  "Appointment Setter",
+  "Bookkeeping",
+  "Brand Marketing",
+  "Business Development (BDR)",
+  "Business Intelligence",
+  "CRM (HubSpot, Salesforce) Ops",
+  "Community Manager",
+  "Content Marketing",
+  "Controller",
+  "Copywriting / Content Writing",
+  "Creative Design",
+  "Customer Service",
+  "Customer Success",
+  "Data Analysis",
+  "Data Business Analysis",
+  "Data Engineer",
+  "Data Entry",
+  "Data Science",
+  "Demand Generation",
+  "DevOps",
+  "Ecommerce",
+  "Email Marketing Automation / Klaviyo",
+  "Email Marketing Designer",
+  "Event Marketing",
+  "Executive Assistant",
+  "Full-Stack Developer/Engineer",
+  "Graphic Designer",
+  "Growth Marketing",
+  "Human Resources",
+  "Lead Generation",
+  "ML Engineering",
+  "Marketing",
+  "Merger & Acquisitions",
+  "Mobile Engineer",
+  "No-Code Development",
+  "PR & Communications",
+  "Paid Media / PPC / Media Buyer",
+  "Performance Marketing",
+  "Procurement & Logistics",
+  "Product Design",
+  "Project Manager (Non-IT)",
+  "Proposal Writing",
+  "QA Automation",
+  "QA Manual Testing",
+  "Revenue Operations",
+  "SEO / SEM",
+  "Sales AI Enablement",
+  "Sales Development (SDR)",
+  "Sales Operations",
+  "Sales Research",
+  "Social Media",
+  "Solutions Engineer",
+  "Systems Automation",
+  "Technical Customer Support",
+  "Travel Agent",
+  "UI/UX Design",
+  "Video Editor",
+  "Virtual Assistant",
+] as const;
+
 export type CallSessionStatus =
   | "scoping"
   | "scope_flagged"
@@ -36,6 +108,13 @@ export interface RoleScope {
   /** 0-1 confidence that this extraction is accurate/complete. */
   confidence: number;
   sourceQuotes: { timestamp: string; quote: string }[];
+  /**
+   * The closest match for this role from usa_benchmark_data's coarser role
+   * list (e.g. "Marketing Manager" -> "Marketing"), used to compute client
+   * savings vs. a USA hire. null if nothing in that list reasonably fits —
+   * see web/lib/anthropic.ts's EXTRACT_TOOL for the fixed list of values.
+   */
+  usaBenchmarkRole: string | null;
 }
 
 export type ScopeFlagType =
@@ -58,10 +137,52 @@ export interface JobDescription {
   approvedByClient: boolean;
 }
 
+export type CommissionTierName =
+  | "Hero"
+  | "Safe-Strong"
+  | "Safe-Solid"
+  | "Acceptable"
+  | "Below Standard";
+
+export interface TierRecommendation {
+  targetTier: "Safe-Strong" | "Hero";
+  /** The price that would need to be charged (roles/seniority unchanged) to hit this tier. */
+  priceNeeded: number;
+  /** How much higher than the current finalPrice that is. */
+  priceIncrease: number;
+}
+
+export interface LowerSeniorityRecommendation {
+  roleId: string;
+  roleTitle: string | null;
+  currentSeniority: string;
+  suggestedSeniority: string;
+  newMarginPct: number;
+  newTier: CommissionTierName;
+  newFinalPrice: number;
+}
+
+export interface QuoteRecommendations {
+  toSafeStrong: TierRecommendation | null;
+  toHero: TierRecommendation | null;
+  lowerSeniority: LowerSeniorityRecommendation | null;
+}
+
 export interface QuoteState {
   marginPct: number | null;
   dealWorthIt: boolean | null;
   finalPrice: number | null;
+  tier: CommissionTierName | null;
+  /** Non-null whenever the deal isn't already Safe-Strong or Hero. */
+  recommendations: QuoteRecommendations | null;
+  /**
+   * What a comparable USA hire would typically cost, for the "client
+   * savings" comparison. null unless every role has a usaBenchmarkRole
+   * match — see calculateUsaSavings in lib/pricing.ts.
+   */
+  usaSalary: number | null;
+  monthlySavings: number | null;
+  annualSavings: number | null;
   /** Set only when the rep explicitly confirms price with the client. This is the gate for jds. */
   lockedAt: string | null;
 }
@@ -95,4 +216,13 @@ export interface PricingDataRow {
   targetPrice: number;
   minMargin: number;
   skills: string[];
+}
+
+/** Row shape for the usa_benchmark_data table — see db/seed-usa-benchmark.sql. */
+export interface UsaBenchmarkRow {
+  id: string;
+  role: string;
+  category: string;
+  seniority: string;
+  salary: number;
 }

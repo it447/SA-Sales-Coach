@@ -4,16 +4,28 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import type { ExtensionConfig } from "../lib/storage";
 
-const TRANSCRIPT_BATCH_MS = 5000;
-const POLL_MS = 5000;
+// Shorter batch window = pricing/extraction refreshes sooner after the rep
+// finishes scoping a role, at the cost of ~2.5x more Claude API calls during
+// a live call — a fine trade for a real-time coaching tool at our call volume.
+const TRANSCRIPT_BATCH_MS = 2000;
+const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
 
 const sidebar = new Sidebar({
-  onRunQuote: () => withSession((config, sessionId) => api.runQuote(config, sessionId).then(applySession).catch(showError)),
-  onLockPrice: () => withSession((config, sessionId) => api.lockPrice(config, sessionId).then(applySession).catch(showError)),
-  onGenerateJds: () => withSession((config, sessionId) => api.generateJds(config, sessionId).then(applySession).catch(showError)),
+  onRunQuote: () =>
+    withSession((config, sessionId) => api.runQuote(config, sessionId).then(applySession).catch(showError)).finally(
+      () => sidebar.setBusy(false)
+    ),
+  onLockPrice: () =>
+    withSession((config, sessionId) => api.lockPrice(config, sessionId).then(applySession).catch(showError)).finally(
+      () => sidebar.setBusy(false)
+    ),
+  onGenerateJds: () =>
+    withSession((config, sessionId) => api.generateJds(config, sessionId).then(applySession).catch(showError)).finally(
+      () => sidebar.setBusy(false)
+    ),
   onResolveFlag: (index) =>
     withSession(async (config, sessionId) => {
       const session = await api.getSession(config, sessionId);
@@ -69,8 +81,21 @@ async function flushTranscriptLoop(): Promise<void> {
           { timestamp: new Date().toISOString(), speaker: null, text: linesToSend.join(" ") },
         ]);
         const result = await api.runExtract(config, sessionId);
-        applySession(result.session);
         sidebar.setObjectionSuggestions(result.objectionSuggestions);
+
+        let session = result.session;
+        // Pricing recalculates automatically as soon as there's enough
+        // scoped info, rather than requiring the rep to click "Calculate
+        // Price" — it just appears once it's ready. The button still
+        // exists as a manual "force refresh" option.
+        if (!session.quote.lockedAt) {
+          try {
+            session = await api.runQuote(config, sessionId);
+          } catch (err) {
+            showError(err);
+          }
+        }
+        applySession(session);
       } catch (err) {
         showError(err);
       }

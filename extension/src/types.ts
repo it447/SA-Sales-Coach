@@ -29,6 +29,8 @@ export interface RoleScope {
   niceToHaves: string[];
   confidence: number;
   sourceQuotes: { timestamp: string; quote: string }[];
+  /** Closest match from usa_benchmark_data's role list, for client savings. */
+  usaBenchmarkRole: string | null;
 }
 
 export interface ScopeFlag {
@@ -45,6 +47,35 @@ export interface JobDescription {
   approvedByClient: boolean;
 }
 
+export type CommissionTierName =
+  | "Hero"
+  | "Safe-Strong"
+  | "Safe-Solid"
+  | "Acceptable"
+  | "Below Standard";
+
+export interface TierRecommendation {
+  targetTier: "Safe-Strong" | "Hero";
+  priceNeeded: number;
+  priceIncrease: number;
+}
+
+export interface LowerSeniorityRecommendation {
+  roleId: string;
+  roleTitle: string | null;
+  currentSeniority: string;
+  suggestedSeniority: string;
+  newMarginPct: number;
+  newTier: CommissionTierName;
+  newFinalPrice: number;
+}
+
+export interface QuoteRecommendations {
+  toSafeStrong: TierRecommendation | null;
+  toHero: TierRecommendation | null;
+  lowerSeniority: LowerSeniorityRecommendation | null;
+}
+
 export interface CallSession {
   id: string;
   meetLink: string;
@@ -58,6 +89,11 @@ export interface CallSession {
     marginPct: number | null;
     dealWorthIt: boolean | null;
     finalPrice: number | null;
+    tier: CommissionTierName | null;
+    recommendations: QuoteRecommendations | null;
+    usaSalary: number | null;
+    monthlySavings: number | null;
+    annualSavings: number | null;
     lockedAt: string | null;
   };
   jds: JobDescription[];
