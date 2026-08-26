@@ -200,6 +200,12 @@ export class Sidebar {
 
     const s = this.session;
 
+    // render() rebuilds the whole panel via innerHTML on every poll tick
+    // (every ~2s during a call), which resets scroll to the top each time
+    // unless we capture and restore it — otherwise the rep gets yanked back
+    // to the top mid-scroll, e.g. while trying to reach "Calculate Price".
+    const previousScrollTop = this.root.querySelector(".panel")?.scrollTop ?? 0;
+
     this.root.innerHTML = `
       <div class="panel">
         <div class="panel-header">
@@ -211,6 +217,9 @@ export class Sidebar {
         ${!s ? `<p class="muted">No active session for this call yet. Click the Deal Assistant icon in your toolbar to start one.</p>` : this.renderSession(s)}
       </div>
     `;
+
+    const panel = this.root.querySelector(".panel");
+    if (panel) panel.scrollTop = previousScrollTop;
   }
 
   private renderSession(s: CallSession): string {

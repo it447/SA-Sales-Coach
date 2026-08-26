@@ -25,6 +25,15 @@ function mergeCallPhases(previous: CallPhases, next: CallPhases): CallPhases {
 }
 
 /**
+ * Identifies a flag by what it's about, not its (possibly reworded)
+ * message — same type, same affected role(s). Used to recognize "this is
+ * the same underlying issue" across extraction calls.
+ */
+function flagKey(f: Pick<ScopeFlag, "type" | "roleIds">): string {
+  return `${f.type}:${[...f.roleIds].sort().join(",")}`;
+}
+
+/**
  * Detects scope creep: a new role showing up while an existing role is
  * still unconfirmed (low confidence). This is deliberately NOT a separate
  * "creep detector" pass — it's just how roles get appended, per the data
@@ -74,15 +83,24 @@ export async function runExtraction(session: CallSession): Promise<ExtractionOut
 
   // Avoid re-flagging the exact same creep pair on every extract call.
   const alreadyFlagged = creepFlag
-    ? session.scopeFlags.some(
-        (f) =>
-          f.type === "multiple_roles_bundled" &&
-          !f.resolved &&
-          JSON.stringify([...f.roleIds].sort()) === JSON.stringify([...creepFlag.roleIds].sort())
-      )
+    ? session.scopeFlags.some((f) => !f.resolved && flagKey(f) === flagKey(creepFlag))
     : true;
 
-  const scopeFlags: ScopeFlag[] = [...result.scopeFlags, ...(creepFlag && !alreadyFlagged ? [creepFlag] : [])];
+  // Claude has no memory between calls of which flags the rep already
+  // resolved — it just re-judges the transcript fresh every time, so a
+  // still-true underlying issue (e.g. a role still missing its region)
+  // gets flagged again even after being explicitly dismissed. Carry
+  // forward previously-resolved flags and drop any of Claude's new flags
+  // that match one of them, instead of blindly replacing the whole array
+  // with Claude's fresh (memory-less) judgment every pass.
+  const previouslyResolvedKeys = new Set(session.scopeFlags.filter((f) => f.resolved).map(flagKey));
+  const newUnresolvedFlags = result.scopeFlags.filter((f) => !previouslyResolvedKeys.has(flagKey(f)));
+
+  const scopeFlags: ScopeFlag[] = [
+    ...session.scopeFlags.filter((f) => f.resolved),
+    ...newUnresolvedFlags,
+    ...(creepFlag && !alreadyFlagged ? [creepFlag] : []),
+  ];
 
   const hasUnresolvedFlags = scopeFlags.some((f) => !f.resolved);
   const nextStatus =
