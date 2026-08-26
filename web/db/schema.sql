@@ -29,7 +29,7 @@ create table if not exists call_sessions (
   roles        jsonb not null default '[]'::jsonb,
   scope_flags  jsonb not null default '[]'::jsonb,
 
-  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "lockedAt": null}'::jsonb,
+  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb
 );
 

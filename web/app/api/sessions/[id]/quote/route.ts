@@ -53,12 +53,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const pricingRows = await pool.query<PricingDataDbRow>("select * from pricing_data");
     const pricingData = pricingRows.rows.map(dbRowToPricingData);
 
-    const { marginPct, dealWorthIt, finalPrice } = calculateMargin(session.roles, pricingData);
+    const { marginPct, dealWorthIt, finalPrice, tier, recommendations } = calculateMargin(
+      session.roles,
+      pricingData
+    );
 
     const newQuote = {
       marginPct,
       dealWorthIt,
       finalPrice,
+      tier,
+      recommendations,
       lockedAt: session.quote.lockedAt,
     };
 

@@ -58,10 +58,44 @@ export interface JobDescription {
   approvedByClient: boolean;
 }
 
+export type CommissionTierName =
+  | "Hero"
+  | "Safe-Strong"
+  | "Safe-Solid"
+  | "Acceptable"
+  | "Below Standard";
+
+export interface TierRecommendation {
+  targetTier: "Safe-Strong" | "Hero";
+  /** The price that would need to be charged (roles/seniority unchanged) to hit this tier. */
+  priceNeeded: number;
+  /** How much higher than the current finalPrice that is. */
+  priceIncrease: number;
+}
+
+export interface LowerSeniorityRecommendation {
+  roleId: string;
+  roleTitle: string | null;
+  currentSeniority: string;
+  suggestedSeniority: string;
+  newMarginPct: number;
+  newTier: CommissionTierName;
+  newFinalPrice: number;
+}
+
+export interface QuoteRecommendations {
+  toSafeStrong: TierRecommendation | null;
+  toHero: TierRecommendation | null;
+  lowerSeniority: LowerSeniorityRecommendation | null;
+}
+
 export interface QuoteState {
   marginPct: number | null;
   dealWorthIt: boolean | null;
   finalPrice: number | null;
+  tier: CommissionTierName | null;
+  /** Non-null whenever the deal isn't already Safe-Strong or Hero. */
+  recommendations: QuoteRecommendations | null;
   /** Set only when the rep explicitly confirms price with the client. This is the gate for jds. */
   lockedAt: string | null;
 }

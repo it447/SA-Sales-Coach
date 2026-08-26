@@ -296,19 +296,50 @@ export class Sidebar {
   }
 
   private renderQuote(s: CallSession): string {
-    const { marginPct, dealWorthIt, finalPrice, lockedAt } = s.quote;
+    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, lockedAt } = s.quote;
     return `
       <div class="card">
         <h3>Pricing</h3>
         ${
           finalPrice !== null
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
-               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
+               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
             : `<p class="muted">Not priced yet.</p>`
         }
+        ${this.renderRecommendations(recommendations)}
         ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>Calculate Price</button>` : ""}
         ${finalPrice !== null && !lockedAt ? `<button data-action="lock-price" ${this.busy ? "disabled" : ""}>Lock Price With Client</button>` : ""}
         ${lockedAt ? `<p class="muted">Locked ${new Date(lockedAt).toLocaleTimeString()}</p>` : ""}
+      </div>
+    `;
+  }
+
+  private renderRecommendations(recommendations: CallSession["quote"]["recommendations"]): string {
+    if (!recommendations) return "";
+    const { toSafeStrong, toHero, lowerSeniority } = recommendations;
+    if (!toSafeStrong && !toHero && !lowerSeniority) return "";
+
+    const lines: string[] = [];
+    if (toSafeStrong) {
+      lines.push(
+        `To make this a <strong>Safe-Strong</strong> deal: raise the price to <strong>${fmt(toSafeStrong.priceNeeded)}</strong> (+${fmt(toSafeStrong.priceIncrease)}).`
+      );
+    }
+    if (toHero) {
+      lines.push(
+        `To make this a <strong>Hero</strong> deal: raise the price to <strong>${fmt(toHero.priceNeeded)}</strong> (+${fmt(toHero.priceIncrease)}).`
+      );
+    }
+    if (lowerSeniority) {
+      lines.push(
+        `Or scope ${escapeHtml(lowerSeniority.roleTitle ?? "this role")} as <strong>${escapeHtml(lowerSeniority.suggestedSeniority)}</strong> instead of ${escapeHtml(lowerSeniority.currentSeniority)}: margin becomes ${fmtPct(lowerSeniority.newMarginPct)} (${escapeHtml(lowerSeniority.newTier)}) at ${fmt(lowerSeniority.newFinalPrice)}.`
+      );
+    }
+
+    return `
+      <div class="banner" style="margin-top:0.5rem">
+        <strong>Recommendations</strong>
+        <ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>
       </div>
     `;
   }
