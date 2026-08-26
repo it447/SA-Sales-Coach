@@ -308,7 +308,10 @@ export class Sidebar {
             : `<p class="muted">Not priced yet.</p>`
         }
         ${
-          monthlySavings !== null && annualSavings !== null
+          // typeof check (not !== null) because sessions quoted before this
+          // field existed have no monthlySavings/annualSavings key at all —
+          // undefined, not null — and fmt(undefined) renders as "$NaN".
+          typeof monthlySavings === "number" && typeof annualSavings === "number"
             ? `<p style="color:${colors.greenAccent}">Client saves <strong>${fmt(monthlySavings)}/mo</strong> vs. a US hire (${fmt(annualSavings)}/yr)</p>`
             : ""
         }

@@ -77,25 +77,16 @@ async function flushTranscriptLoop(): Promise<void> {
   if (linesToSend.length > 0) {
     await withSession(async (config, sessionId) => {
       try {
-        await api.postTranscript(config, sessionId, [
+        // One request instead of postTranscript + runExtract + runQuote
+        // separately — this loop fires every couple of seconds for the
+        // whole call, so each round trip saved is latency the rep feels
+        // directly. Pricing recalculates automatically as part of it
+        // whenever the quote isn't locked yet, no button needed.
+        const result = await api.ingestTranscript(config, sessionId, [
           { timestamp: new Date().toISOString(), speaker: null, text: linesToSend.join(" ") },
         ]);
-        const result = await api.runExtract(config, sessionId);
         sidebar.setObjectionSuggestions(result.objectionSuggestions);
-
-        let session = result.session;
-        // Pricing recalculates automatically as soon as there's enough
-        // scoped info, rather than requiring the rep to click "Calculate
-        // Price" — it just appears once it's ready. The button still
-        // exists as a manual "force refresh" option.
-        if (!session.quote.lockedAt) {
-          try {
-            session = await api.runQuote(config, sessionId);
-          } catch (err) {
-            showError(err);
-          }
-        }
-        applySession(session);
+        applySession(result.session);
       } catch (err) {
         showError(err);
       }

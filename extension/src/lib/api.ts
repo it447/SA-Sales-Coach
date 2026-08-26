@@ -65,6 +65,23 @@ export function runExtract(config: ExtensionConfig, sessionId: string): Promise<
   });
 }
 
+/**
+ * Combines postTranscript + runExtract + runQuote into one request — used
+ * by the live-call loop instead of three separate calls, since that loop
+ * fires every couple of seconds for the whole call and each extra round
+ * trip is latency the rep feels directly.
+ */
+export function ingestTranscript(
+  config: ExtensionConfig,
+  sessionId: string,
+  chunks: TranscriptChunk[]
+): Promise<ExtractResponse> {
+  return apiFetch<ExtractResponse>(config, `/api/sessions/${sessionId}/ingest`, {
+    method: "POST",
+    body: JSON.stringify({ chunks }),
+  });
+}
+
 export function saveRoles(
   config: ExtensionConfig,
   sessionId: string,
