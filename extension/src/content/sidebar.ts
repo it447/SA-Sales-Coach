@@ -35,14 +35,14 @@ export class Sidebar {
   // it overlaps whatever they're presenting, since Meet has no idea our
   // panel exists and doesn't reflow around it. Starts collapsed to a
   // small tab; the rep expands it when they actually want to look at it.
-  private collapsed = true;
+  private collapsed = false;
 
   constructor(callbacks: SidebarCallbacks) {
     this.callbacks = callbacks;
 
     this.host = document.createElement("div");
     this.host.id = "deal-assistant-sidebar-host";
-    this.host.style.cssText = "position: fixed; top: 0; right: 0; z-index: 999999;";
+    this.host.style.cssText = "position: fixed; top: 0; right: 0; z-index: 2147483647; pointer-events: auto;";
     document.body.appendChild(this.host);
 
     this.shadow = this.host.attachShadow({ mode: "open" });
@@ -56,16 +56,16 @@ export class Sidebar {
   }
 
   private async loadCollapsedState(): Promise<void> {
-    const result = await chrome.storage.local.get("dealAssistantSidebarCollapsed");
-    if (typeof result.dealAssistantSidebarCollapsed === "boolean") {
-      this.collapsed = result.dealAssistantSidebarCollapsed;
-      this.render();
-    }
+    // Every fresh page load starts expanded regardless of what was saved
+    // last time — a stale "collapsed" preference from a previous call must
+    // never leave the rep with no visible way to open the panel again.
+    // Manual minimizing during the current page's session still works via
+    // setCollapsed(); we just don't carry a collapsed state across reloads.
+    await chrome.storage.local.remove("dealAssistantSidebarCollapsed");
   }
 
   private setCollapsed(collapsed: boolean): void {
     this.collapsed = collapsed;
-    chrome.storage.local.set({ dealAssistantSidebarCollapsed: collapsed });
     this.render();
   }
 
