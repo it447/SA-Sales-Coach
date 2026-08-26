@@ -31,6 +31,8 @@ export interface RoleScope {
   sourceQuotes: { timestamp: string; quote: string }[];
   /** Closest match from usa_benchmark_data's role list, for client savings. */
   usaBenchmarkRole: string | null;
+  /** A specific monthly number the client stated for this role's budget, if any. Top of range if they gave one. */
+  clientBudget: number | null;
 }
 
 export interface ScopeFlag {
@@ -76,6 +78,21 @@ export interface QuoteRecommendations {
   lowerSeniority: LowerSeniorityRecommendation | null;
 }
 
+/** Always-shown reference ladder — the price needed for each tier, roles/seniority unchanged. */
+export interface PriceTiers {
+  acceptable: number;
+  safeStrong: number;
+  hero: number;
+}
+
+/** What the deal looks like at the number the client actually said. */
+export interface AtClientBudget {
+  budget: number;
+  marginPct: number;
+  tier: CommissionTierName;
+  dealWorthIt: boolean;
+}
+
 /** Order-free checklist of whether each phase of a healthy call has been covered — see web/config/call-script.md. */
 export interface CallPhases {
   agendaSet: boolean;
@@ -102,6 +119,8 @@ export interface CallSession {
     finalPrice: number | null;
     tier: CommissionTierName | null;
     recommendations: QuoteRecommendations | null;
+    priceTiers: PriceTiers | null;
+    atClientBudget: AtClientBudget | null;
     pricedRoleCount: number;
     totalRoleCount: number;
     usaSalary: number | null;

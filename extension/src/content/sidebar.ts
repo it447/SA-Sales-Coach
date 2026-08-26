@@ -36,6 +36,9 @@ export class Sidebar {
   // panel exists and doesn't reflow around it. Starts collapsed to a
   // small tab; the rep expands it when they actually want to look at it.
   private collapsed = false;
+  // Which card sections the rep has collapsed, by key (see renderCard) —
+  // in-memory only, resets on page reload like editingRoleId does.
+  private collapsedSections = new Set<string>();
 
   constructor(callbacks: SidebarCallbacks) {
     this.callbacks = callbacks;
@@ -72,6 +75,13 @@ export class Sidebar {
   update(session: CallSession): void {
     this.session = session;
     this.busy = false;
+    // Skip re-rendering while a role is being edited — this fires every
+    // ~2s from the live poll loop, and rebuilding the whole panel via
+    // innerHTML while the rep is mid-edit destroys the input fields
+    // (and whatever they'd already typed) constantly, making the edit
+    // form look completely broken. The latest session data still lands
+    // in this.session and shows as soon as the edit is saved/canceled.
+    if (this.editingRoleId !== null) return;
     this.render();
   }
 
@@ -107,6 +117,15 @@ export class Sidebar {
 
     if (action === "toggle-collapse") {
       this.setCollapsed(!this.collapsed);
+    } else if (action === "toggle-section") {
+      const section = target.dataset.section;
+      if (!section) return;
+      if (this.collapsedSections.has(section)) {
+        this.collapsedSections.delete(section);
+      } else {
+        this.collapsedSections.add(section);
+      }
+      this.render();
     } else if (action === "dismiss-error") {
       this.setError(null);
     } else if (action === "run-quote") {
@@ -135,6 +154,7 @@ export class Sidebar {
       if (!container) return;
       const get = (name: string) =>
         (container.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`)?.value ?? "").trim();
+      const clientBudgetRaw = get("clientBudget");
       const updated: RoleScope = {
         ...role,
         title: get("title") || null,
@@ -142,6 +162,7 @@ export class Sidebar {
         region: (get("region") || null) as RoleRegion | null,
         mustHaves: get("mustHaves").split(",").map((s) => s.trim()).filter(Boolean),
         niceToHaves: get("niceToHaves").split(",").map((s) => s.trim()).filter(Boolean),
+        clientBudget: clientBudgetRaw ? Number(clientBudgetRaw) : null,
       };
       this.editingRoleId = null;
       this.callbacks.onSaveRole(updated);
@@ -152,8 +173,15 @@ export class Sidebar {
     const style = document.createElement("style");
     style.textContent = `
       * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-      .panel { width: 320px; height: 100vh; background: ${colors.navy}; color: ${colors.cream};
-        border-left: 1px solid ${colors.navyBorder}; overflow-y: auto; padding: 1rem; font-size: 13px; }
+      .panel { width: 320px; max-height: 50vh; background: ${colors.navy}; color: ${colors.cream};
+        border-left: 1px solid ${colors.navyBorder}; border-bottom: 1px solid ${colors.navyBorder};
+        border-radius: 0 0 12px 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        overflow-y: auto; padding: 1rem; font-size: 13px; }
+      .card-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+        margin: 0 0 0.5rem; user-select: none; }
+      .card-header h3 { margin: 0; }
+      .card-header .chevron { color: ${colors.beige}; font-size: 10px; transition: transform 0.15s; }
+      .card-header .chevron.collapsed { transform: rotate(-90deg); }
       .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
       .collapse-btn { background: transparent; border: 1px solid ${colors.navyMid}; color: ${colors.cream};
         border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 12px; cursor: pointer; margin: 0; }
@@ -167,6 +195,13 @@ export class Sidebar {
       h3 { font-size: 12px; color: ${colors.orange}; margin: 0 0 0.5rem; text-transform: uppercase; letter-spacing: 0.03em; }
       .card { background: ${colors.navyLight}; border: 1px solid ${colors.navyBorder}; border-radius: 10px;
         padding: 0.75rem; margin-bottom: 0.75rem; }
+      .subcard { background: ${colors.navyMid}; border: 1px solid ${colors.navyBorder}; border-radius: 8px;
+        padding: 0.6rem; margin-bottom: 0.5rem; }
+      .subcard:last-child { margin-bottom: 0; }
+      .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; margin: 0.4rem 0; }
+      .tier-box { border-radius: 8px; padding: 0.5rem 0.3rem; text-align: center; border: 1px solid; }
+      .tier-label { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.2rem; }
+      .tier-price { font-size: 13px; font-weight: bold; }
       .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 11px; font-weight: bold; }
       .field { margin-bottom: 0.4rem; }
       .field label { display: block; color: ${colors.beige}; font-size: 11px; margin-bottom: 0.15rem; }
@@ -222,6 +257,23 @@ export class Sidebar {
     if (panel) panel.scrollTop = previousScrollTop;
   }
 
+  // Wraps section body content with a clickable header that collapses it —
+  // the panel is capped to half the screen height now (see .panel CSS), so
+  // letting the rep collapse sections they don't need live is how they fit
+  // everything else without constant scrolling.
+  private renderCard(key: string, title: string, bodyHtml: string): string {
+    const isCollapsed = this.collapsedSections.has(key);
+    return `
+      <div class="card">
+        <div class="card-header" data-action="toggle-section" data-section="${key}">
+          <h3>${escapeHtml(title)}</h3>
+          <span class="chevron ${isCollapsed ? "collapsed" : ""}">▼</span>
+        </div>
+        ${isCollapsed ? "" : bodyHtml}
+      </div>
+    `;
+  }
+
   private renderSession(s: CallSession): string {
     return `
       <div class="card">
@@ -253,37 +305,34 @@ export class Sidebar {
       { label: "Pricing discussed", done: s.callPhases.pricingDiscussed },
       { label: "Close attempted", done: s.callPhases.closeAttempted },
     ];
-    return `
-      <div class="card">
-        <h3>Call Structure</h3>
-        <ul style="list-style:none;padding-left:0;margin:0">
-          ${items
-            .map(
-              (item) => `
-                <li style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;color:${
-                  item.done ? colors.cream : colors.beige
-                }">
-                  <span style="color:${item.done ? colors.greenAccent : colors.navyMid}">${item.done ? "✓" : "○"}</span>
-                  ${escapeHtml(item.label)}
-                </li>
-              `
-            )
-            .join("")}
-        </ul>
-      </div>
+    const body = `
+      <ul style="list-style:none;padding-left:0;margin:0">
+        ${items
+          .map(
+            (item) => `
+              <li style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;color:${
+                item.done ? colors.cream : colors.beige
+              }">
+                <span style="color:${item.done ? colors.greenAccent : colors.navyMid}">${item.done ? "✓" : "○"}</span>
+                ${escapeHtml(item.label)}
+              </li>
+            `
+          )
+          .join("")}
+      </ul>
     `;
+    return this.renderCard("callStructure", "Call Structure", body);
   }
 
   private renderRoles(s: CallSession): string {
     if (s.roles.length === 0) {
-      return `<div class="card"><h3>Roles</h3><p class="muted">No roles detected yet — keep talking, captions must be on.</p></div>`;
+      return this.renderCard("roles", "Roles", `<p class="muted">No roles detected yet — keep talking, captions must be on.</p>`);
     }
-    return s.roles
+    const body = s.roles
       .map((role) => {
         if (this.editingRoleId === role.id) {
           return `
-            <div class="card" data-role-edit="${role.id}">
-              <h3>Editing role</h3>
+            <div class="subcard" data-role-edit="${role.id}">
               <div class="field"><label>Title</label><input name="title" value="${escapeAttr(role.title ?? "")}" /></div>
               <div class="field"><label>Seniority</label><input name="seniority" value="${escapeAttr(role.seniority ?? "")}" /></div>
               <div class="field"><label>Region</label>
@@ -296,51 +345,48 @@ export class Sidebar {
               </div>
               <div class="field"><label>Must-haves (comma separated)</label><input name="mustHaves" value="${escapeAttr(role.mustHaves.join(", "))}" /></div>
               <div class="field"><label>Nice-to-haves (comma separated)</label><input name="niceToHaves" value="${escapeAttr(role.niceToHaves.join(", "))}" /></div>
+              <div class="field"><label>Client budget/mo (blank if not stated)</label><input name="clientBudget" type="number" value="${role.clientBudget !== null ? role.clientBudget : ""}" /></div>
               <button data-action="save-role" data-role-id="${role.id}">Save</button>
               <button class="secondary" data-action="cancel-edit">Cancel</button>
             </div>
           `;
         }
         return `
-          <div class="card">
-            <h3>${escapeHtml(role.title ?? "Untitled role")}</h3>
+          <div class="subcard">
+            <strong>${escapeHtml(role.title ?? "Untitled role")}</strong>
             <p class="muted">${escapeHtml(role.seniority ?? "Seniority unknown")} · ${escapeHtml(role.region ?? "Region unknown")}</p>
             ${role.mustHaves.length ? `<p class="muted">Must-haves: ${escapeHtml(role.mustHaves.join(", "))}</p>` : ""}
             ${role.niceToHaves.length ? `<p class="muted">Nice-to-haves: ${escapeHtml(role.niceToHaves.join(", "))}</p>` : ""}
+            ${role.clientBudget !== null ? `<p class="muted">Client budget: ${fmt(role.clientBudget)}/mo</p>` : ""}
             <button class="secondary" data-action="edit-role" data-role-id="${role.id}">Edit</button>
           </div>
         `;
       })
       .join("");
+    return this.renderCard("roles", "Roles", body);
   }
 
   private renderFlags(s: CallSession): string {
     const unresolved = s.scopeFlags.filter((f) => !f.resolved);
     if (unresolved.length === 0) return "";
-    return `
-      <div class="card">
-        <h3>Flags</h3>
-        <ul>
-          ${s.scopeFlags
-            .map((f, i) =>
-              f.resolved
-                ? ""
-                : `<li>${escapeHtml(f.message)} <button class="secondary" data-action="resolve-flag" data-flag-index="${i}" style="margin-top:0.2rem">Resolve</button></li>`
-            )
-            .join("")}
-        </ul>
-      </div>
+    const body = `
+      <ul>
+        ${s.scopeFlags
+          .map((f, i) =>
+            f.resolved
+              ? ""
+              : `<li>${escapeHtml(f.message)} <button class="secondary" data-action="resolve-flag" data-flag-index="${i}" style="margin-top:0.2rem">Resolve</button></li>`
+          )
+          .join("")}
+      </ul>
     `;
+    return this.renderCard("flags", "Flags", body);
   }
 
   private renderObjections(): string {
     if (this.objectionSuggestions.length === 0) return "";
-    return `
-      <div class="card">
-        <h3>Objection handling</h3>
-        <ul>${this.objectionSuggestions.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul>
-      </div>
-    `;
+    const body = `<ul>${this.objectionSuggestions.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul>`;
+    return this.renderCard("objections", "Objection handling", body);
   }
 
   private renderQuote(s: CallSession): string {
@@ -350,6 +396,8 @@ export class Sidebar {
       finalPrice,
       tier,
       recommendations,
+      priceTiers,
+      atClientBudget,
       monthlySavings,
       annualSavings,
       lockedAt,
@@ -357,9 +405,7 @@ export class Sidebar {
       totalRoleCount,
     } = s.quote;
     const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
-    return `
-      <div class="card">
-        <h3>Pricing</h3>
+    const body = `
         ${
           finalPrice !== null
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
@@ -367,6 +413,8 @@ export class Sidebar {
                ${isPartial ? `<p class="muted">Partial quote — ${pricedRoleCount} of ${totalRoleCount} roles priced. The rest need more info before they're included.</p>` : ""}`
             : `<p class="muted">Not priced yet.</p>`
         }
+        ${this.renderPriceTiers(priceTiers)}
+        ${this.renderAtClientBudget(atClientBudget)}
         ${
           // typeof check (not !== null) because sessions quoted before this
           // field existed have no monthlySavings/annualSavings key at all —
@@ -379,6 +427,45 @@ export class Sidebar {
         ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>Calculate Price</button>` : ""}
         ${finalPrice !== null && !lockedAt ? `<button data-action="lock-price" ${this.busy ? "disabled" : ""}>Lock Price With Client</button>` : ""}
         ${lockedAt ? `<p class="muted">Locked ${new Date(lockedAt).toLocaleTimeString()}</p>` : ""}
+    `;
+    return this.renderCard("quote", "Pricing", body);
+  }
+
+  // Always-shown reference ladder (unlike renderRecommendations, which only
+  // appears when the deal isn't already at a tier) — mirrors how the
+  // standalone Scale Army pricing calculator presents its output.
+  private renderPriceTiers(priceTiers: CallSession["quote"]["priceTiers"]): string {
+    if (!priceTiers) return "";
+    const boxes: { label: string; price: number; color: string }[] = [
+      { label: "Acceptable", price: priceTiers.acceptable, color: colors.yellowAccent },
+      { label: "Safe-Strong", price: priceTiers.safeStrong, color: colors.orange },
+      { label: "Hero", price: priceTiers.hero, color: colors.greenAccent },
+    ];
+    return `
+      <div class="tier-grid">
+        ${boxes
+          .map(
+            (b) => `
+              <div class="tier-box" style="background:${b.color}22;border-color:${b.color}">
+                <div class="tier-label" style="color:${b.color}">${escapeHtml(b.label)}</div>
+                <div class="tier-price">${fmt(b.price)}</div>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  private renderAtClientBudget(atClientBudget: CallSession["quote"]["atClientBudget"]): string {
+    if (!atClientBudget) return "";
+    const { budget, marginPct, tier, dealWorthIt } = atClientBudget;
+    return `
+      <div class="subcard" style="margin-top:0.4rem">
+        <p class="muted" style="margin:0 0 0.2rem">At client's stated budget</p>
+        <p style="margin:0">${fmt(budget)}/mo → <strong>${fmtPct(marginPct)} margin</strong> · ${escapeHtml(tier)} ${
+      dealWorthIt === false ? "(below floor)" : ""
+    }</p>
       </div>
     `;
   }
@@ -415,9 +502,7 @@ export class Sidebar {
 
   private renderJds(s: CallSession): string {
     if (!s.quote.lockedAt) return "";
-    return `
-      <div class="card">
-        <h3>Job Descriptions</h3>
+    const body = `
         ${s.jds.length === 0 ? `<button data-action="generate-jds" ${this.busy ? "disabled" : ""}>Generate JDs</button>` : ""}
         ${s.jds
           .map(
@@ -425,8 +510,8 @@ export class Sidebar {
               `<p class="muted">JD generated for role ${escapeHtml(jd.roleId)} — <a href="#" style="color:${colors.orange}" data-action="none">view</a></p>`
           )
           .join("")}
-      </div>
     `;
+    return this.renderCard("jds", "Job Descriptions", body);
   }
 }
 

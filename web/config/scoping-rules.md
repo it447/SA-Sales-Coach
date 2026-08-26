@@ -48,6 +48,14 @@ _(TODO: replace with our actual standard responses once we have them.)_
 
 ## Budget mismatch signals
 
+Whenever the client states a specific number (or range) for what they'd
+pay for a role, set that role's `clientBudget` to it — this is what
+computes "margin at their number" for the rep, not just our recommended
+price. If they give a range ("$3k to $4k"), use the TOP of the range: the
+tool should evaluate against what they said they'd go up to, not the
+low end. Leave `clientBudget` null until they've actually given a number —
+don't guess one from context.
+
 Reference thresholds pulled from the legacy `scale-army-jd-tool` agent's
 financial review step (same underlying formula as `web/lib/pricing.ts`):
 margin = (client_budget - salary) / client_budget.

@@ -67,8 +67,18 @@ export async function runQuote(session: CallSession): Promise<CallSession> {
   const pricingData = pricingRows.rows.map(dbRowToPricingData);
   const usaBenchmarkData = usaBenchmarkRows.rows.map(dbRowToUsaBenchmark);
 
-  const { marginPct, dealWorthIt, finalPrice, tier, recommendations, pricedRoleCount, totalRoleCount, pricedRoles } =
-    calculateMargin(session.roles, pricingData);
+  const {
+    marginPct,
+    dealWorthIt,
+    finalPrice,
+    tier,
+    recommendations,
+    pricedRoleCount,
+    totalRoleCount,
+    pricedRoles,
+    priceTiers,
+    atClientBudget,
+  } = calculateMargin(session.roles, pricingData);
   // Uses pricedRoles (not session.roles) so savings stay apples-to-apples
   // with a partial quote — comparing USA cost for a role that isn't even
   // priced yet would be misleading.
@@ -84,6 +94,8 @@ export async function runQuote(session: CallSession): Promise<CallSession> {
     finalPrice,
     tier,
     recommendations,
+    priceTiers,
+    atClientBudget,
     pricedRoleCount,
     totalRoleCount,
     usaSalary,

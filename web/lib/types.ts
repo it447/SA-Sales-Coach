@@ -115,6 +115,13 @@ export interface RoleScope {
    * see web/lib/anthropic.ts's EXTRACT_TOOL for the fixed list of values.
    */
   usaBenchmarkRole: string | null;
+  /**
+   * A specific monthly number the client stated for this role's budget
+   * (e.g. "we have $4k for this"), if any — null until they give one. Used
+   * to show margin at their actual number, not just our recommended price.
+   * If they gave a range, use the top of it (see scoping-rules.md).
+   */
+  clientBudget: number | null;
 }
 
 export type ScopeFlagType =
@@ -168,6 +175,21 @@ export interface QuoteRecommendations {
   lowerSeniority: LowerSeniorityRecommendation | null;
 }
 
+/** The price needed (roles/seniority unchanged) to reach each tier — a permanent reference ladder, not conditional on the deal being below any of them. */
+export interface PriceTiers {
+  acceptable: number;
+  safeStrong: number;
+  hero: number;
+}
+
+/** What the deal looks like at the number the client actually said, not our recommended price. */
+export interface AtClientBudget {
+  budget: number;
+  marginPct: number;
+  tier: CommissionTierName;
+  dealWorthIt: boolean;
+}
+
 export interface QuoteState {
   marginPct: number | null;
   dealWorthIt: boolean | null;
@@ -175,6 +197,10 @@ export interface QuoteState {
   tier: CommissionTierName | null;
   /** Non-null whenever the deal isn't already Safe-Strong or Hero. */
   recommendations: QuoteRecommendations | null;
+  /** Always populated whenever anything is priced. */
+  priceTiers: PriceTiers | null;
+  /** null unless every priced role has a stated clientBudget. */
+  atClientBudget: AtClientBudget | null;
   /** How many of the call's roles actually contributed to finalPrice — less than totalRoleCount means this is a partial quote. */
   pricedRoleCount: number;
   totalRoleCount: number;

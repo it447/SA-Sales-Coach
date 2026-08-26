@@ -89,6 +89,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
               description:
                 "Pick whichever of these fixed categories is the closest real-world match for this role's title/responsibilities — used only to estimate what a comparable USA hire would cost, so a close semantic match is fine (e.g. 'Marketing Manager' -> 'Marketing', 'B2B Marketing Manager' -> 'Marketing', 'Sales Manager' -> 'Sales Operations'). null only if truly nothing on this list is a reasonable fit, or title isn't set yet.",
             },
+            clientBudget: {
+              type: ["number", "null"],
+              description:
+                "A specific monthly number the client stated they'd pay for THIS role. If they gave a range, use the TOP of it — e.g. '$3k to $4k' -> 4000. null until they've given an actual number; don't guess one from context.",
+            },
           },
           required: [
             "id",
@@ -100,6 +105,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             "confidence",
             "sourceQuotes",
             "usaBenchmarkRole",
+            "clientBudget",
           ],
         },
       },
