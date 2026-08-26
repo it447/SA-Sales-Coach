@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/db";
 import { rowToSession, getSession } from "../../../../../lib/sessions";
-import { calculateMargin } from "../../../../../lib/pricing";
-import type { PricingDataRow } from "../../../../../lib/types";
+import { calculateMargin, calculateUsaSavings } from "../../../../../lib/pricing";
+import type { PricingDataRow, UsaBenchmarkRow } from "../../../../../lib/types";
 
 interface PricingDataDbRow {
   id: string;
@@ -35,6 +35,24 @@ function dbRowToPricingData(row: PricingDataDbRow): PricingDataRow {
   };
 }
 
+interface UsaBenchmarkDbRow {
+  id: string;
+  role: string;
+  category: string;
+  seniority: string;
+  salary: string;
+}
+
+function dbRowToUsaBenchmark(row: UsaBenchmarkDbRow): UsaBenchmarkRow {
+  return {
+    id: row.id,
+    role: row.role,
+    category: row.category,
+    seniority: row.seniority,
+    salary: Number(row.salary),
+  };
+}
+
 /**
  * POST /api/sessions/:id/quote — runs the margin calculation against the
  * current roles. Does NOT set quote.lockedAt — that only happens when the
@@ -50,12 +68,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   try {
-    const pricingRows = await pool.query<PricingDataDbRow>("select * from pricing_data");
+    const [pricingRows, usaBenchmarkRows] = await Promise.all([
+      pool.query<PricingDataDbRow>("select * from pricing_data"),
+      pool.query<UsaBenchmarkDbRow>("select * from usa_benchmark_data"),
+    ]);
     const pricingData = pricingRows.rows.map(dbRowToPricingData);
+    const usaBenchmarkData = usaBenchmarkRows.rows.map(dbRowToUsaBenchmark);
 
     const { marginPct, dealWorthIt, finalPrice, tier, recommendations } = calculateMargin(
       session.roles,
       pricingData
+    );
+    const { usaSalary, monthlySavings, annualSavings } = calculateUsaSavings(
+      session.roles,
+      finalPrice,
+      usaBenchmarkData
     );
 
     const newQuote = {
@@ -64,6 +91,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       finalPrice,
       tier,
       recommendations,
+      usaSalary,
+      monthlySavings,
+      annualSavings,
       lockedAt: session.quote.lockedAt,
     };
 

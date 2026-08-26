@@ -296,7 +296,8 @@ export class Sidebar {
   }
 
   private renderQuote(s: CallSession): string {
-    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, lockedAt } = s.quote;
+    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, monthlySavings, annualSavings, lockedAt } =
+      s.quote;
     return `
       <div class="card">
         <h3>Pricing</h3>
@@ -305,6 +306,11 @@ export class Sidebar {
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
                <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
             : `<p class="muted">Not priced yet.</p>`
+        }
+        ${
+          monthlySavings !== null && annualSavings !== null
+            ? `<p style="color:${colors.greenAccent}">Client saves <strong>${fmt(monthlySavings)}/mo</strong> vs. a US hire (${fmt(annualSavings)}/yr)</p>`
+            : ""
         }
         ${this.renderRecommendations(recommendations)}
         ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>Calculate Price</button>` : ""}

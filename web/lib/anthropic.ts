@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import path from "path";
+import { USA_BENCHMARK_ROLES } from "./types";
 import type { RoleScope, ScopeFlag, TranscriptChunk } from "./types";
 
 // Matches the model already in production use by the scale-army-jd-tool
@@ -81,8 +82,24 @@ const EXTRACT_TOOL: Anthropic.Tool = {
                 required: ["timestamp", "quote"],
               },
             },
+            usaBenchmarkRole: {
+              type: ["string", "null"],
+              enum: [...USA_BENCHMARK_ROLES, null],
+              description:
+                "Pick whichever of these fixed categories is the closest real-world match for this role's title/responsibilities — used only to estimate what a comparable USA hire would cost, so a close semantic match is fine (e.g. 'Marketing Manager' -> 'Marketing', 'B2B Marketing Manager' -> 'Marketing', 'Sales Manager' -> 'Sales Operations'). null only if truly nothing on this list is a reasonable fit, or title isn't set yet.",
+            },
           },
-          required: ["id", "title", "seniority", "region", "mustHaves", "niceToHaves", "confidence", "sourceQuotes"],
+          required: [
+            "id",
+            "title",
+            "seniority",
+            "region",
+            "mustHaves",
+            "niceToHaves",
+            "confidence",
+            "sourceQuotes",
+            "usaBenchmarkRole",
+          ],
         },
       },
       scopeFlags: {

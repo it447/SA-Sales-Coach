@@ -29,6 +29,8 @@ export interface RoleScope {
   niceToHaves: string[];
   confidence: number;
   sourceQuotes: { timestamp: string; quote: string }[];
+  /** Closest match from usa_benchmark_data's role list, for client savings. */
+  usaBenchmarkRole: string | null;
 }
 
 export interface ScopeFlag {
@@ -89,6 +91,9 @@ export interface CallSession {
     finalPrice: number | null;
     tier: CommissionTierName | null;
     recommendations: QuoteRecommendations | null;
+    usaSalary: number | null;
+    monthlySavings: number | null;
+    annualSavings: number | null;
     lockedAt: string | null;
   };
   jds: JobDescription[];

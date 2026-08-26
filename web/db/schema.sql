@@ -29,7 +29,7 @@ create table if not exists call_sessions (
   roles        jsonb not null default '[]'::jsonb,
   scope_flags  jsonb not null default '[]'::jsonb,
 
-  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "lockedAt": null}'::jsonb,
+  quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb
 );
 
@@ -81,4 +81,20 @@ create table if not exists pricing_data (
   target_price numeric not null,
   min_margin   numeric not null,
   skills       jsonb not null default '[]'::jsonb
+);
+
+-- ---------------------------------------------------------------------------
+-- usa_benchmark_data
+--
+-- Typical USA market salary per role/seniority, used to show the client how
+-- much they'd save per month/year vs. hiring locally. A coarser, separate
+-- role taxonomy than pricing_data (see db/seed-usa-benchmark.sql for why) --
+-- extraction tags each scoped role with its closest match here.
+-- ---------------------------------------------------------------------------
+create table if not exists usa_benchmark_data (
+  id        text primary key,
+  role      text not null,
+  category  text not null,
+  seniority text not null,
+  salary    numeric not null
 );

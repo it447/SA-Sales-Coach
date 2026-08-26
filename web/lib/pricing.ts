@@ -1,6 +1,7 @@
 import type {
   RoleScope,
   PricingDataRow,
+  UsaBenchmarkRow,
   CommissionTierName,
   TierRecommendation,
   LowerSeniorityRecommendation,
@@ -15,6 +16,12 @@ export interface MarginResult {
   finalPrice: number | null;
   tier: CommissionTierName | null;
   recommendations: QuoteRecommendations | null;
+}
+
+export interface UsaSavingsResult {
+  usaSalary: number | null;
+  monthlySavings: number | null;
+  annualSavings: number | null;
 }
 
 /**
@@ -230,4 +237,47 @@ export function calculateMargin(
     tier,
     recommendations,
   };
+}
+
+/**
+ * What the client would pay for a comparable USA hire, and how much they
+ * save going with us instead — using usaBenchmarkRole (a coarser,
+ * AI-assigned category — see RoleScope) rather than pricing_data's
+ * granular titles, since usa_benchmark_data uses a different taxonomy
+ * (see db/seed-usa-benchmark.sql).
+ *
+ * All-or-nothing like calculateMargin: if any role has no usaBenchmarkRole
+ * match, returns all nulls rather than a partial/misleading comparison.
+ * `finalPrice` is what we're actually charging (from calculateMargin) —
+ * savings = usaSalary - finalPrice.
+ */
+export function calculateUsaSavings(
+  roles: RoleScope[],
+  finalPrice: number | null,
+  usaBenchmarkData: UsaBenchmarkRow[]
+): UsaSavingsResult {
+  if (roles.length === 0 || finalPrice === null) {
+    return { usaSalary: null, monthlySavings: null, annualSavings: null };
+  }
+
+  const matches = roles.map((role) => {
+    if (!role.usaBenchmarkRole || !role.seniority) return null;
+    return (
+      usaBenchmarkData.find(
+        (row) =>
+          row.role.toLowerCase() === role.usaBenchmarkRole!.toLowerCase() &&
+          row.seniority.toLowerCase() === role.seniority!.toLowerCase()
+      ) ?? null
+    );
+  });
+
+  if (matches.some((match) => match === null)) {
+    return { usaSalary: null, monthlySavings: null, annualSavings: null };
+  }
+  const matchedRows = matches as UsaBenchmarkRow[];
+
+  const usaSalary = matchedRows.reduce((sum, row) => sum + row.salary, 0);
+  const monthlySavings = usaSalary - finalPrice;
+
+  return { usaSalary, monthlySavings, annualSavings: monthlySavings * 12 };
 }
