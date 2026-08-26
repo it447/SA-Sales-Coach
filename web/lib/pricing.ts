@@ -16,6 +16,11 @@ export interface MarginResult {
   finalPrice: number | null;
   tier: CommissionTierName | null;
   recommendations: QuoteRecommendations | null;
+  /** How many of the call's roles actually contributed to finalPrice. */
+  pricedRoleCount: number;
+  totalRoleCount: number;
+  /** The subset of roles that got priced — same roles finalPrice reflects, for calculateUsaSavings to stay apples-to-apples with a partial quote. */
+  pricedRoles: RoleScope[];
 }
 
 export interface UsaSavingsResult {
@@ -183,32 +188,44 @@ function findLowerSeniorityRecommendation(
  * (roles unchanged) or a lower-seniority alternative for one role — instead
  * of just flagging it as thin with no next step.
  *
- * Returns nulls if any role isn't scoped enough yet to price (missing
- * title/seniority, or no matching pricing_data row) — the caller should
- * treat that as "not ready to quote." Region isn't required here (falls
- * back to the cheaper region if unset) even though it's still a required
- * field for a role to count as fully "scoped" — see scoping-rules.md.
+ * Prices whatever roles ARE fully scoped and have a matching pricing_data
+ * row, even if others on the call aren't ready yet — one incomplete role
+ * (e.g. missing seniority) no longer blocks pricing for the rest.
+ * `pricedRoleCount`/`totalRoleCount` tell the caller whether this is a
+ * partial quote so the UI can say so, instead of presenting it as final.
+ * Returns nulls only when NO role is priceable yet.
  */
 export function calculateMargin(
   roles: RoleScope[],
   pricingData: PricingDataRow[]
 ): MarginResult {
-  if (roles.length === 0) {
-    return { marginPct: null, dealWorthIt: null, finalPrice: null, tier: null, recommendations: null };
-  }
+  const totalRoleCount = roles.length;
+  const nullResult: MarginResult = {
+    marginPct: null,
+    dealWorthIt: null,
+    finalPrice: null,
+    tier: null,
+    recommendations: null,
+    pricedRoleCount: 0,
+    totalRoleCount,
+    pricedRoles: [],
+  };
 
-  const matches = roles.map((role) => matchPricingRow(role, pricingData));
-  if (matches.some((match) => match === null)) {
-    return { marginPct: null, dealWorthIt: null, finalPrice: null, tier: null, recommendations: null };
-  }
-  const matchedRows = matches as PricingDataRow[];
+  if (totalRoleCount === 0) return nullResult;
+
+  const pricedPairs = roles
+    .map((role) => ({ role, row: matchPricingRow(role, pricingData) }))
+    .filter((pair): pair is { role: RoleScope; row: PricingDataRow } => pair.row !== null);
+
+  if (pricedPairs.length === 0) return nullResult;
+
+  const pricedRoles = pricedPairs.map((pair) => pair.role);
+  const matchedRows = pricedPairs.map((pair) => pair.row);
 
   const totalSalary = matchedRows.reduce((sum, row) => sum + row.salary, 0);
   const finalPrice = matchedRows.reduce((sum, row) => sum + row.targetPrice, 0);
 
-  if (finalPrice <= 0) {
-    return { marginPct: null, dealWorthIt: null, finalPrice: null, tier: null, recommendations: null };
-  }
+  if (finalPrice <= 0) return nullResult;
 
   const spread = finalPrice - totalSalary;
   const marginPct = spread / finalPrice;
@@ -227,7 +244,9 @@ export function calculateMargin(
       : {
           toSafeStrong,
           toHero,
-          lowerSeniority: toSafeStrong ? findLowerSeniorityRecommendation(roles, matchedRows, pricingData) : null,
+          lowerSeniority: toSafeStrong
+            ? findLowerSeniorityRecommendation(pricedRoles, matchedRows, pricingData)
+            : null,
         };
 
   return {
@@ -236,6 +255,9 @@ export function calculateMargin(
     finalPrice,
     tier,
     recommendations,
+    pricedRoleCount: pricedRoles.length,
+    totalRoleCount,
+    pricedRoles,
   };
 }
 

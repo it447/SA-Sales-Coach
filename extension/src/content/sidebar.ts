@@ -344,15 +344,27 @@ export class Sidebar {
   }
 
   private renderQuote(s: CallSession): string {
-    const { marginPct, dealWorthIt, finalPrice, tier, recommendations, monthlySavings, annualSavings, lockedAt } =
-      s.quote;
+    const {
+      marginPct,
+      dealWorthIt,
+      finalPrice,
+      tier,
+      recommendations,
+      monthlySavings,
+      annualSavings,
+      lockedAt,
+      pricedRoleCount,
+      totalRoleCount,
+    } = s.quote;
+    const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
     return `
       <div class="card">
         <h3>Pricing</h3>
         ${
           finalPrice !== null
             ? `<p>Price: <strong>${fmt(finalPrice)}</strong></p>
-               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>`
+               <p class="muted">Margin: ${marginPct !== null ? fmtPct(marginPct) : "—"} ${tier ? `· ${escapeHtml(tier)}` : ""} ${dealWorthIt === false ? "(below floor)" : ""}</p>
+               ${isPartial ? `<p class="muted">Partial quote — ${pricedRoleCount} of ${totalRoleCount} roles priced. The rest need more info before they're included.</p>` : ""}`
             : `<p class="muted">Not priced yet.</p>`
         }
         ${
