@@ -23,6 +23,26 @@ seniority range, not two roles. Different titles = always separate roles.")_
 
 _(TODO: add any additional required fields, e.g. minimum must-have skill count.)_
 
+## Tech roles: two extra required answers
+
+For every technical/engineering role (`isTechRole: true` — software engineer,
+data engineer, DevOps, QA, technical PM, AI/ML engineer, etc.), the rep MUST
+leave the scoping call with clear answers to:
+
+1. **First task**: "What is the first thing this person will do when they
+   start?" — a concrete initial task or project, not a vague generality like
+   "get up to speed."
+2. **Success outcome**: "If you had someone excellent in this role, what
+   business outcomes would they help drive? What would the business
+   actually look like as a result?"
+
+Set `firstTask`/`successOutcome` from the transcript once genuinely
+addressed — don't infer or paraphrase a vague answer into something that
+sounds concrete; leave it `null` if the client hasn't actually answered yet.
+A JD cannot be generated for a tech role until both are set (enforced by
+`/generate-jds`, not just this prompt) — the `missing_tech_answers` flag
+that surfaces this is added programmatically, not by you.
+
 ## Objection-handling playbook
 
 Generic placeholder — replace with our real playbook once we have one.

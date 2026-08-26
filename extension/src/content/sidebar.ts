@@ -164,6 +164,9 @@ export class Sidebar {
         mustHaves: get("mustHaves").split(",").map((s) => s.trim()).filter(Boolean),
         niceToHaves: get("niceToHaves").split(",").map((s) => s.trim()).filter(Boolean),
         clientBudget: clientBudgetRaw ? Number(clientBudgetRaw) : null,
+        isTechRole: get("isTechRole") === "true",
+        firstTask: get("firstTask") || null,
+        successOutcome: get("successOutcome") || null,
       };
       this.editingRoleId = null;
       this.callbacks.onSaveRole(updated);
@@ -351,11 +354,23 @@ export class Sidebar {
               <div class="field"><label>Must-haves (comma separated)</label><input name="mustHaves" value="${escapeAttr(role.mustHaves.join(", "))}" /></div>
               <div class="field"><label>Nice-to-haves (comma separated)</label><input name="niceToHaves" value="${escapeAttr(role.niceToHaves.join(", "))}" /></div>
               <div class="field"><label>Client budget/mo (blank if not stated)</label><input name="clientBudget" type="number" value="${typeof role.clientBudget === "number" ? role.clientBudget : ""}" /></div>
+              <div class="field"><label>Tech role?</label>
+                <select name="isTechRole">
+                  <option value="false" ${!role.isTechRole ? "selected" : ""}>No</option>
+                  <option value="true" ${role.isTechRole ? "selected" : ""}>Yes</option>
+                </select>
+              </div>
+              <div class="field"><label>First task they'll do (tech roles only)</label><input name="firstTask" value="${escapeAttr(role.firstTask ?? "")}" /></div>
+              <div class="field"><label>Success outcome (tech roles only)</label><input name="successOutcome" value="${escapeAttr(role.successOutcome ?? "")}" /></div>
               <button data-action="save-role" data-role-id="${role.id}">Save</button>
               <button class="secondary" data-action="cancel-edit">Cancel</button>
             </div>
           `;
         }
+        const missingTechAnswer = (label: string, value: string | null) =>
+          `<p class="muted">${label}: ${
+            value ? escapeHtml(value) : `<span style="color:${colors.redAccent}">not answered</span>`
+          }</p>`;
         return `
           <div class="subcard">
             <strong>${escapeHtml(role.title ?? "Untitled role")}</strong>
@@ -363,6 +378,11 @@ export class Sidebar {
             ${role.mustHaves.length ? `<p class="muted">Must-haves: ${escapeHtml(role.mustHaves.join(", "))}</p>` : ""}
             ${role.niceToHaves.length ? `<p class="muted">Nice-to-haves: ${escapeHtml(role.niceToHaves.join(", "))}</p>` : ""}
             ${typeof role.clientBudget === "number" ? `<p class="muted">Client budget: ${fmt(role.clientBudget)}/mo</p>` : ""}
+            ${
+              role.isTechRole
+                ? missingTechAnswer("First task", role.firstTask) + missingTechAnswer("Success outcome", role.successOutcome)
+                : ""
+            }
             <button class="secondary" data-action="edit-role" data-role-id="${role.id}">Edit</button>
           </div>
         `;
@@ -374,17 +394,27 @@ export class Sidebar {
   private renderFlags(s: CallSession): string {
     const unresolved = s.scopeFlags.filter((f) => !f.resolved);
     if (unresolved.length === 0) return "";
-    const body = `
-      <ul>
-        ${s.scopeFlags
-          .map((f, i) =>
-            f.resolved
-              ? ""
-              : `<li>${escapeHtml(f.message)} <button class="secondary" data-action="resolve-flag" data-flag-index="${i}" style="margin-top:0.2rem">Resolve</button></li>`
-          )
-          .join("")}
-      </ul>
-    `;
+    // Critical flags (missing tech-role answers) get the same red treatment
+    // as a real error — they're blocking JD generation, not just a nudge —
+    // and have no Resolve button, since there's nothing to dismiss short of
+    // actually getting the answer from the client. Warning flags keep the
+    // lower-key yellow banner look and stay dismissable.
+    const body = s.scopeFlags
+      .map((f, i) => {
+        if (f.resolved) return "";
+        const isCritical = f.severity === "critical";
+        return `
+          <div class="${isCritical ? "error" : "banner"}" style="margin-bottom:0.5rem">
+            ${isCritical ? "🚫 " : ""}${escapeHtml(f.message)}
+            ${
+              isCritical
+                ? ""
+                : `<button class="secondary" data-action="resolve-flag" data-flag-index="${i}" style="margin-top:0.4rem">Resolve</button>`
+            }
+          </div>
+        `;
+      })
+      .join("");
     return this.renderCard("flags", "Flags", body);
   }
 
