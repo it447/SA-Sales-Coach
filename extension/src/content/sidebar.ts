@@ -29,6 +29,7 @@ export class Sidebar {
   private errorMessage: string | null = null;
   private bannerMessage: string | null = null;
   private editingRoleId: string | null = null;
+  private expandedJdRoleId: string | null = null;
   private busy = false;
   // Collapsed by default: a fixed 320px panel permanently covering the
   // right edge of the page is a bad time when a rep is screen-sharing —
@@ -166,6 +167,10 @@ export class Sidebar {
       };
       this.editingRoleId = null;
       this.callbacks.onSaveRole(updated);
+    } else if (action === "view-jd") {
+      const roleId = target.dataset.roleId ?? null;
+      this.expandedJdRoleId = this.expandedJdRoleId === roleId ? null : roleId;
+      this.render();
     }
   }
 
@@ -505,10 +510,19 @@ export class Sidebar {
     const body = `
         ${s.jds.length === 0 ? `<button data-action="generate-jds" ${this.busy ? "disabled" : ""}>Generate JDs</button>` : ""}
         ${s.jds
-          .map(
-            (jd) =>
-              `<p class="muted">JD generated for role ${escapeHtml(jd.roleId)} — <a href="#" style="color:${colors.orange}" data-action="none">view</a></p>`
-          )
+          .map((jd) => {
+            const role = s.roles.find((r) => r.id === jd.roleId);
+            const isExpanded = this.expandedJdRoleId === jd.roleId;
+            return `
+              <div class="subcard">
+                <p class="muted" style="margin:0 0 0.3rem">
+                  JD for ${escapeHtml(role?.title ?? jd.roleId)} —
+                  <button class="secondary" style="padding:0.15rem 0.5rem;margin:0" data-action="view-jd" data-role-id="${jd.roleId}">${isExpanded ? "Hide" : "View"}</button>
+                </p>
+                ${isExpanded ? `<pre style="white-space:pre-wrap;font-family:inherit;font-size:12px;margin:0">${escapeHtml(jd.content)}</pre>` : ""}
+              </div>
+            `;
+          })
           .join("")}
     `;
     return this.renderCard("jds", "Job Descriptions", body);
