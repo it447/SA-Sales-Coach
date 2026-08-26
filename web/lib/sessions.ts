@@ -16,9 +16,19 @@ interface CallSessionRow {
   transcript: unknown;
   roles: unknown;
   scope_flags: unknown;
+  call_phases: unknown;
   quote: unknown;
   jds: unknown;
 }
+
+const DEFAULT_CALL_PHASES: CallSession["callPhases"] = {
+  agendaSet: false,
+  discoveryCovered: false,
+  consultativeDiagnosisGiven: false,
+  processExplained: false,
+  pricingDiscussed: false,
+  closeAttempted: false,
+};
 
 export function rowToSession(row: CallSessionRow): CallSession {
   return {
@@ -30,6 +40,9 @@ export function rowToSession(row: CallSessionRow): CallSession {
     transcript: row.transcript as CallSession["transcript"],
     roles: row.roles as CallSession["roles"],
     scopeFlags: row.scope_flags as CallSession["scopeFlags"],
+    // Falls back for rows written before this column existed on a
+    // deployment that hasn't re-run the migration yet.
+    callPhases: (row.call_phases as CallSession["callPhases"]) ?? DEFAULT_CALL_PHASES,
     quote: row.quote as CallSession["quote"],
     jds: row.jds as CallSession["jds"],
   };

@@ -187,6 +187,22 @@ export interface QuoteState {
   lockedAt: string | null;
 }
 
+/**
+ * Whether each phase of a healthy discovery call (see config/call-script.md)
+ * has been covered so far — an order-free checklist, not a required
+ * sequence, since real calls jump around based on what the client brings
+ * up. Role scoping is deliberately not a field here: it's judged directly
+ * from `roles`' completeness instead of asked of the AI a second time.
+ */
+export interface CallPhases {
+  agendaSet: boolean;
+  discoveryCovered: boolean;
+  consultativeDiagnosisGiven: boolean;
+  processExplained: boolean;
+  pricingDiscussed: boolean;
+  closeAttempted: boolean;
+}
+
 export interface CallSession {
   id: string;
   meetLink: string;
@@ -197,6 +213,7 @@ export interface CallSession {
 
   roles: RoleScope[];
   scopeFlags: ScopeFlag[];
+  callPhases: CallPhases;
 
   quote: QuoteState;
 

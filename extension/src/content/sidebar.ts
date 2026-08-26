@@ -218,11 +218,50 @@ export class Sidebar {
       <div class="card">
         <span class="badge" style="background:${colors.orange}22;color:${colors.orange};border:1px solid ${colors.orange}">${escapeHtml(s.status)}</span>
       </div>
+      ${this.renderCallStructure(s)}
       ${this.renderRoles(s)}
       ${this.renderFlags(s)}
       ${this.renderObjections()}
       ${this.renderQuote(s)}
       ${this.renderJds(s)}
+    `;
+  }
+
+  // Informational only — a soft nudge for the rep to glance at, never
+  // blocks any action. Phases are order-free: a real call jumps around
+  // based on what the client brings up, so this just tracks what's been
+  // covered at all, not whether it happened in the "right" sequence.
+  private renderCallStructure(s: CallSession): string {
+    const roleScopingDone = s.roles.some(
+      (r) => r.title && r.seniority && r.region && r.mustHaves.length > 0
+    );
+    const items: { label: string; done: boolean }[] = [
+      { label: "Agenda set", done: s.callPhases.agendaSet },
+      { label: "Discovery", done: s.callPhases.discoveryCovered },
+      { label: "Role scoping", done: roleScopingDone },
+      { label: "Consultative diagnosis", done: s.callPhases.consultativeDiagnosisGiven },
+      { label: "Process explained", done: s.callPhases.processExplained },
+      { label: "Pricing discussed", done: s.callPhases.pricingDiscussed },
+      { label: "Close attempted", done: s.callPhases.closeAttempted },
+    ];
+    return `
+      <div class="card">
+        <h3>Call Structure</h3>
+        <ul style="list-style:none;padding-left:0;margin:0">
+          ${items
+            .map(
+              (item) => `
+                <li style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;color:${
+                  item.done ? colors.cream : colors.beige
+                }">
+                  <span style="color:${item.done ? colors.greenAccent : colors.navyMid}">${item.done ? "✓" : "○"}</span>
+                  ${escapeHtml(item.label)}
+                </li>
+              `
+            )
+            .join("")}
+        </ul>
+      </div>
     `;
   }
 

@@ -76,6 +76,16 @@ export interface QuoteRecommendations {
   lowerSeniority: LowerSeniorityRecommendation | null;
 }
 
+/** Order-free checklist of whether each phase of a healthy call has been covered — see web/config/call-script.md. */
+export interface CallPhases {
+  agendaSet: boolean;
+  discoveryCovered: boolean;
+  consultativeDiagnosisGiven: boolean;
+  processExplained: boolean;
+  pricingDiscussed: boolean;
+  closeAttempted: boolean;
+}
+
 export interface CallSession {
   id: string;
   meetLink: string;
@@ -85,6 +95,7 @@ export interface CallSession {
   transcript: TranscriptChunk[];
   roles: RoleScope[];
   scopeFlags: ScopeFlag[];
+  callPhases: CallPhases;
   quote: {
     marginPct: number | null;
     dealWorthIt: boolean | null;
