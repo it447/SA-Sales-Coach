@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import path from "path";
 import { USA_BENCHMARK_ROLES } from "./types";
-import type { RoleScope, ScopeFlag, TranscriptChunk } from "./types";
+import type { RoleScope, ScopeFlag, CallPhases, TranscriptChunk } from "./types";
 
 // Matches the model already in production use by the scale-army-jd-tool
 // agent, for consistency across our internal tools.
@@ -24,6 +24,7 @@ function readConfigDoc(filename: string): string {
 export interface ExtractResult {
   roles: RoleScope[];
   scopeFlags: ScopeFlag[];
+  callPhases: CallPhases;
   /**
    * Live objection-handling suggestions for whatever pushback (if any)
    * appears in the transcript so far. NOT persisted to the session record
@@ -121,8 +122,29 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         description: "Suggested responses if the transcript shows objection/pushback language (price, competitor, timeline). Empty array if none.",
         items: { type: "string" },
       },
+      callPhases: {
+        type: "object",
+        description:
+          "Whether each phase of a healthy discovery call (see the call-structure conventions below) has been covered SO FAR based on the full transcript, regardless of order. Once true, a phase should generally stay true even if the conversation has since moved elsewhere — these track whether something has happened at all during the call, not the current topic.",
+        properties: {
+          agendaSet: { type: "boolean" },
+          discoveryCovered: { type: "boolean" },
+          consultativeDiagnosisGiven: { type: "boolean" },
+          processExplained: { type: "boolean" },
+          pricingDiscussed: { type: "boolean" },
+          closeAttempted: { type: "boolean" },
+        },
+        required: [
+          "agendaSet",
+          "discoveryCovered",
+          "consultativeDiagnosisGiven",
+          "processExplained",
+          "pricingDiscussed",
+          "closeAttempted",
+        ],
+      },
     },
-    required: ["roles", "scopeFlags", "objectionSuggestions"],
+    required: ["roles", "scopeFlags", "objectionSuggestions", "callPhases"],
   },
 };
 
@@ -137,15 +159,18 @@ const MAX_TRANSCRIPT_CHUNKS_FOR_EXTRACTION = 60;
 
 export async function extractScope(
   transcript: TranscriptChunk[],
-  currentRoles: RoleScope[]
+  currentRoles: RoleScope[],
+  currentCallPhases: CallPhases
 ): Promise<ExtractResult> {
   const scopingRules = readConfigDoc("scoping-rules.md");
+  const callScript = readConfigDoc("call-script.md");
 
   const recentTranscript = transcript.slice(-MAX_TRANSCRIPT_CHUNKS_FOR_EXTRACTION);
   const transcriptText = recentTranscript.map((c) => `[${c.timestamp}] ${c.speaker ?? "?"}: ${c.text}`).join("\n");
   const currentRolesJson = JSON.stringify(currentRoles, null, 2);
+  const currentCallPhasesJson = JSON.stringify(currentCallPhases, null, 2);
 
-  const system = `You are a role-scoping assistant for Scale Army sales calls. Extract structured role information from the live call transcript, detect scope creep and missing info, and suggest objection handling.\n\nOur role-scoping conventions:\n\n${scopingRules}`;
+  const system = `You are a role-scoping assistant for Scale Army sales calls. Extract structured role information from the live call transcript, detect scope creep and missing info, suggest objection handling, and track whether the call is covering the phases of a healthy discovery call.\n\nOur role-scoping conventions:\n\n${scopingRules}\n\nOur call-structure conventions:\n\n${callScript}`;
 
   const message = await getClient().messages.create({
     model: MODEL,
@@ -156,7 +181,7 @@ export async function extractScope(
     messages: [
       {
         role: "user",
-        content: `Current Roles (from before this update):\n${currentRolesJson}\n\nMost recent transcript (Current Roles already reflects anything earlier that's been extracted):\n${transcriptText}`,
+        content: `Current Roles (from before this update):\n${currentRolesJson}\n\nCurrent Call Phases (from before this update — only the most recent transcript window is shown below, so a phase already true here that isn't visible in it is still true; never flip a true back to false):\n${currentCallPhasesJson}\n\nMost recent transcript (Current Roles and Current Call Phases already reflect anything earlier that's been extracted):\n${transcriptText}`,
       },
     ],
   });

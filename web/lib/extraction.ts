@@ -2,9 +2,27 @@ import { randomUUID } from "crypto";
 import { pool } from "./db";
 import { rowToSession } from "./sessions";
 import { extractScope } from "./anthropic";
-import type { CallSession, RoleScope, ScopeFlag } from "./types";
+import type { CallSession, RoleScope, ScopeFlag, CallPhases } from "./types";
 
 const UNCONFIRMED_THRESHOLD = 0.8;
+
+/**
+ * Once a phase is true it should never go back to false — a call doesn't
+ * "un-cover" discovery just because the last couple minutes were about
+ * something else. Belt-and-suspenders on top of the prompt telling Claude
+ * the same thing: OR each phase against what was already true rather than
+ * trusting the model's raw output not to regress.
+ */
+function mergeCallPhases(previous: CallPhases, next: CallPhases): CallPhases {
+  return {
+    agendaSet: previous.agendaSet || next.agendaSet,
+    discoveryCovered: previous.discoveryCovered || next.discoveryCovered,
+    consultativeDiagnosisGiven: previous.consultativeDiagnosisGiven || next.consultativeDiagnosisGiven,
+    processExplained: previous.processExplained || next.processExplained,
+    pricingDiscussed: previous.pricingDiscussed || next.pricingDiscussed,
+    closeAttempted: previous.closeAttempted || next.closeAttempted,
+  };
+}
 
 /**
  * Detects scope creep: a new role showing up while an existing role is
@@ -43,12 +61,14 @@ export interface ExtractionOutcome {
  * extension's hot polling loop) so the logic lives in exactly one place.
  */
 export async function runExtraction(session: CallSession): Promise<ExtractionOutcome> {
-  const result = await extractScope(session.transcript, session.roles);
+  const result = await extractScope(session.transcript, session.roles, session.callPhases);
 
   const newRoles: RoleScope[] = result.roles.map((role) => ({
     ...role,
     id: role.id ?? randomUUID(),
   }));
+
+  const callPhases = mergeCallPhases(session.callPhases, result.callPhases);
 
   const creepFlag = detectScopeCreep(session.roles, newRoles);
 
@@ -73,8 +93,8 @@ export async function runExtraction(session: CallSession): Promise<ExtractionOut
       : session.status;
 
   const updateResult = await pool.query(
-    "update call_sessions set roles = $1::jsonb, scope_flags = $2::jsonb, status = $3 where id = $4 returning *",
-    [JSON.stringify(newRoles), JSON.stringify(scopeFlags), nextStatus, session.id]
+    "update call_sessions set roles = $1::jsonb, scope_flags = $2::jsonb, status = $3, call_phases = $4::jsonb where id = $5 returning *",
+    [JSON.stringify(newRoles), JSON.stringify(scopeFlags), nextStatus, JSON.stringify(callPhases), session.id]
   );
 
   return {

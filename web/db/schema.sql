@@ -28,10 +28,17 @@ create table if not exists call_sessions (
   transcript   jsonb not null default '[]'::jsonb,
   roles        jsonb not null default '[]'::jsonb,
   scope_flags  jsonb not null default '[]'::jsonb,
+  call_phases  jsonb not null default '{"agendaSet": false, "discoveryCovered": false, "consultativeDiagnosisGiven": false, "processExplained": false, "pricingDiscussed": false, "closeAttempted": false}'::jsonb,
 
   quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb
 );
+
+-- call_phases didn't exist when call_sessions was first created on
+-- production, and "create table if not exists" above is a no-op against an
+-- existing table (it won't add missing columns) -- this is what actually
+-- adds it there. Safe to re-run: no-op once the column exists.
+alter table call_sessions add column if not exists call_phases jsonb not null default '{"agendaSet": false, "discoveryCovered": false, "consultativeDiagnosisGiven": false, "processExplained": false, "pricingDiscussed": false, "closeAttempted": false}'::jsonb;
 
 create index if not exists call_sessions_rep_email_idx on call_sessions (rep_email);
 create index if not exists call_sessions_status_idx on call_sessions (status);
