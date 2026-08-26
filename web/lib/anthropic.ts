@@ -94,6 +94,21 @@ const EXTRACT_TOOL: Anthropic.Tool = {
               description:
                 "A specific monthly number the client stated they'd pay for THIS role. If they gave a range, use the TOP of it — e.g. '$3k to $4k' -> 4000. null until they've given an actual number; don't guess one from context.",
             },
+            isTechRole: {
+              type: "boolean",
+              description:
+                "True if this is a technical/engineering role (software engineer, data engineer, DevOps, QA, technical PM, AI/ML engineer, etc.) as opposed to sales, marketing, ops, support, finance, etc. Gates whether firstTask/successOutcome are required before a JD can be generated for this role.",
+            },
+            firstTask: {
+              type: ["string", "null"],
+              description:
+                "The client's answer to 'what is the first thing this person will do when they start?' — a concrete initial task/project, not a vague generality. null until actually addressed in the transcript.",
+            },
+            successOutcome: {
+              type: ["string", "null"],
+              description:
+                "The client's answer to 'if you had someone excellent in this role, what business outcomes would they help drive?' / 'what would the business actually look like as a result?' — null until actually addressed in the transcript.",
+            },
           },
           required: [
             "id",
@@ -106,12 +121,16 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             "sourceQuotes",
             "usaBenchmarkRole",
             "clientBudget",
+            "isTechRole",
+            "firstTask",
+            "successOutcome",
           ],
         },
       },
       scopeFlags: {
         type: "array",
-        description: "Flags for missing info or budget mismatches. Do NOT include multiple_roles_bundled flags — those are added programmatically.",
+        description:
+          "Flags for missing info or budget mismatches. Do NOT include multiple_roles_bundled or missing_tech_answers flags — those are added programmatically.",
         items: {
           type: "object",
           properties: {
@@ -119,8 +138,13 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             message: { type: "string" },
             roleIds: { type: "array", items: { type: "string" } },
             resolved: { type: "boolean" },
+            severity: {
+              type: "string",
+              enum: ["critical", "warning"],
+              description: "Use 'warning' for these flag types — 'critical' is reserved for the programmatically-added missing_tech_answers flag.",
+            },
           },
-          required: ["type", "message", "roleIds", "resolved"],
+          required: ["type", "message", "roleIds", "resolved", "severity"],
         },
       },
       objectionSuggestions: {

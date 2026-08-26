@@ -33,13 +33,21 @@ export interface RoleScope {
   usaBenchmarkRole: string | null;
   /** A specific monthly number the client stated for this role's budget, if any. Top of range if they gave one. */
   clientBudget: number | null;
+  /** True for technical/engineering roles — gates the firstTask/successOutcome requirement. */
+  isTechRole: boolean;
+  /** Answer to "what's the first thing this person will do when they start?" Required for tech roles before a JD can be generated. */
+  firstTask: string | null;
+  /** Answer to "what business outcome would an excellent hire drive?" Required for tech roles before a JD can be generated. */
+  successOutcome: string | null;
 }
 
 export interface ScopeFlag {
-  type: "multiple_roles_bundled" | "missing_field" | "budget_mismatch";
+  type: "multiple_roles_bundled" | "missing_field" | "budget_mismatch" | "missing_tech_answers";
   message: string;
   roleIds: string[];
   resolved: boolean;
+  /** "critical" flags render distinctly (red) and have no Resolve button — they clear only once the underlying data is actually answered. */
+  severity: "critical" | "warning";
 }
 
 export interface JobDescription {

@@ -55,7 +55,34 @@ function detectScopeCreep(oldRoles: RoleScope[], newRoles: RoleScope[]): ScopeFl
     message: `Sounds like ${newRoles.length} roles now — worth splitting into separate quotes?`,
     roleIds,
     resolved: false,
+    severity: "warning",
   };
+}
+
+/**
+ * Every tech role needs two specific answers before a JD can be generated
+ * for it (see config/scoping-rules.md) — enforced for real in
+ * /generate-jds, not just flagged here. Computed fresh from current role
+ * state every pass rather than carried/merged like AI-sourced flags: it's
+ * fully deterministic (isTechRole + firstTask/successOutcome), so the old
+ * copy is simply replaced each time rather than dismissable — there's
+ * nothing to "resolve" except actually getting the answers from the client.
+ */
+function detectMissingTechAnswers(roles: RoleScope[]): ScopeFlag[] {
+  return roles
+    .filter((role) => role.isTechRole && (!role.firstTask || !role.successOutcome))
+    .map((role) => {
+      const missing: string[] = [];
+      if (!role.firstTask) missing.push("what they'll do first");
+      if (!role.successOutcome) missing.push("what business outcome success looks like");
+      return {
+        type: "missing_tech_answers",
+        message: `${role.title ?? "This tech role"}: still need to know ${missing.join(" and ")} — a JD can't be generated until both are answered.`,
+        roleIds: [role.id],
+        resolved: false,
+        severity: "critical",
+      };
+    });
 }
 
 export interface ExtractionOutcome {
@@ -92,14 +119,21 @@ export async function runExtraction(session: CallSession): Promise<ExtractionOut
   // gets flagged again even after being explicitly dismissed. Carry
   // forward previously-resolved flags and drop any of Claude's new flags
   // that match one of them, instead of blindly replacing the whole array
-  // with Claude's fresh (memory-less) judgment every pass.
+  // with Claude's fresh (memory-less) judgment every pass. missing_tech_
+  // answers is excluded here since it's handled separately below (Claude
+  // is instructed not to emit it at all — this filter is just a backstop).
   const previouslyResolvedKeys = new Set(session.scopeFlags.filter((f) => f.resolved).map(flagKey));
-  const newUnresolvedFlags = result.scopeFlags.filter((f) => !previouslyResolvedKeys.has(flagKey(f)));
+  const newUnresolvedFlags = result.scopeFlags.filter(
+    (f) => f.type !== "missing_tech_answers" && !previouslyResolvedKeys.has(flagKey(f))
+  );
+
+  const techAnswerFlags = detectMissingTechAnswers(newRoles);
 
   const scopeFlags: ScopeFlag[] = [
-    ...session.scopeFlags.filter((f) => f.resolved),
+    ...session.scopeFlags.filter((f) => f.resolved && f.type !== "missing_tech_answers"),
     ...newUnresolvedFlags,
     ...(creepFlag && !alreadyFlagged ? [creepFlag] : []),
+    ...techAnswerFlags,
   ];
 
   const hasUnresolvedFlags = scopeFlags.some((f) => !f.resolved);

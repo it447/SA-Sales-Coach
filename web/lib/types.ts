@@ -122,12 +122,27 @@ export interface RoleScope {
    * If they gave a range, use the top of it (see scoping-rules.md).
    */
   clientBudget: number | null;
+  /**
+   * True if this is a technical/engineering role (software engineer, data
+   * engineer, DevOps, QA, technical PM, etc.) as opposed to sales,
+   * marketing, ops, support, etc. Gates the firstTask/successOutcome
+   * requirement below — see config/scoping-rules.md.
+   */
+  isTechRole: boolean;
+  /** Answer to "what's the first thing this person will do when they start?" — null until addressed. Required for tech roles before a JD can be generated. */
+  firstTask: string | null;
+  /** Answer to "what business outcome would an excellent hire in this role drive?" — null until addressed. Required for tech roles before a JD can be generated. */
+  successOutcome: string | null;
 }
 
 export type ScopeFlagType =
   | "multiple_roles_bundled"
   | "missing_field"
-  | "budget_mismatch";
+  | "budget_mismatch"
+  | "missing_tech_answers";
+
+/** "critical" flags render distinctly (red) and can't be dismissed — they clear only once the underlying data is actually answered, not by clicking Resolve. */
+export type ScopeFlagSeverity = "critical" | "warning";
 
 export interface ScopeFlag {
   type: ScopeFlagType;
@@ -135,6 +150,7 @@ export interface ScopeFlag {
   message: string;
   roleIds: string[];
   resolved: boolean;
+  severity: ScopeFlagSeverity;
 }
 
 export interface JobDescription {
