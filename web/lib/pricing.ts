@@ -6,9 +6,18 @@ import type {
   TierRecommendation,
   LowerSeniorityRecommendation,
   QuoteRecommendations,
+  PriceTiers,
+  AtClientBudget,
 } from "./types";
 
-export type { CommissionTierName, TierRecommendation, LowerSeniorityRecommendation, QuoteRecommendations };
+export type {
+  CommissionTierName,
+  TierRecommendation,
+  LowerSeniorityRecommendation,
+  QuoteRecommendations,
+  PriceTiers,
+  AtClientBudget,
+};
 
 export interface MarginResult {
   marginPct: number | null;
@@ -21,6 +30,10 @@ export interface MarginResult {
   totalRoleCount: number;
   /** The subset of roles that got priced — same roles finalPrice reflects, for calculateUsaSavings to stay apples-to-apples with a partial quote. */
   pricedRoles: RoleScope[];
+  /** Always populated whenever anything is priced — the reference ladder, like the standalone pricing calculator shows. */
+  priceTiers: PriceTiers | null;
+  /** null unless every priced role has a stated clientBudget. */
+  atClientBudget: AtClientBudget | null;
 }
 
 export interface UsaSavingsResult {
@@ -85,6 +98,25 @@ function priceNeededForTier(totalSalary: number, target: "Safe-Strong" | "Hero")
   const viaMarginAlone = totalSalary / 0.5;
   const viaMarginAndSpread = Math.max(totalSalary / 0.6, totalSalary + 1000);
   return Math.min(viaMarginAlone, viaMarginAndSpread);
+}
+
+/** Nearest $50, matching the legacy pricing calculator's convention for reference numbers ($4,307.69 reads as a real quote; $4,300 reads as a reference point). */
+function roundTo50(n: number): number {
+  return Math.round(n / 50) * 50;
+}
+
+/**
+ * The permanent reference ladder — what it'd take to hit each tier, always
+ * shown (unlike `recommendations`, which only appears when the deal isn't
+ * already there). Acceptable only requires margin >= 0.35, no spread floor
+ * — Safe-Strong is the same margin plus a $1,000 spread minimum.
+ */
+function buildPriceTiers(totalSalary: number): PriceTiers {
+  return {
+    acceptable: roundTo50(totalSalary / 0.65),
+    safeStrong: roundTo50(priceNeededForTier(totalSalary, "Safe-Strong")),
+    hero: roundTo50(priceNeededForTier(totalSalary, "Hero")),
+  };
 }
 
 function buildTierRecommendations(
@@ -209,6 +241,8 @@ export function calculateMargin(
     pricedRoleCount: 0,
     totalRoleCount,
     pricedRoles: [],
+    priceTiers: null,
+    atClientBudget: null,
   };
 
   if (totalRoleCount === 0) return nullResult;
@@ -249,6 +283,27 @@ export function calculateMargin(
             : null,
         };
 
+  const priceTiers = buildPriceTiers(totalSalary);
+
+  // Only meaningful when every priced role has a stated number — a partial
+  // sum (e.g. one role's budget plus another role with none) would be a
+  // fabricated total, not something the client actually said.
+  const atClientBudget: AtClientBudget | null = pricedRoles.every((role) => role.clientBudget !== null)
+    ? (() => {
+        const budget = pricedRoles.reduce((sum, role) => sum + (role.clientBudget as number), 0);
+        if (budget <= 0) return null;
+        const budgetSpread = budget - totalSalary;
+        const budgetMarginPct = budgetSpread / budget;
+        const budgetTier = getCommissionTier(budgetMarginPct, budgetSpread);
+        return {
+          budget,
+          marginPct: budgetMarginPct,
+          tier: budgetTier,
+          dealWorthIt: budgetTier !== "Below Standard" && matchedRows.every((row) => budgetMarginPct >= row.minMargin),
+        };
+      })()
+    : null;
+
   return {
     marginPct,
     dealWorthIt,
@@ -258,6 +313,8 @@ export function calculateMargin(
     pricedRoleCount: pricedRoles.length,
     totalRoleCount,
     pricedRoles,
+    priceTiers,
+    atClientBudget,
   };
 }
 
