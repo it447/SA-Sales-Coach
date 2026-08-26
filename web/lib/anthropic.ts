@@ -126,13 +126,23 @@ const EXTRACT_TOOL: Anthropic.Tool = {
   },
 };
 
+// Extraction runs every ~2s for the life of the call, and re-sends
+// whatever transcript it's given on every single call. Passing the FULL
+// call history each time means the prompt (and therefore latency and cost)
+// keeps growing the longer the call runs — a 40-minute call would be
+// resending 40 minutes of transcript on every 2-second tick. currentRoles
+// already carries everything extracted so far, so Claude only needs recent
+// transcript to catch new/changed information, not the entire call.
+const MAX_TRANSCRIPT_CHUNKS_FOR_EXTRACTION = 60;
+
 export async function extractScope(
   transcript: TranscriptChunk[],
   currentRoles: RoleScope[]
 ): Promise<ExtractResult> {
   const scopingRules = readConfigDoc("scoping-rules.md");
 
-  const transcriptText = transcript.map((c) => `[${c.timestamp}] ${c.speaker ?? "?"}: ${c.text}`).join("\n");
+  const recentTranscript = transcript.slice(-MAX_TRANSCRIPT_CHUNKS_FOR_EXTRACTION);
+  const transcriptText = recentTranscript.map((c) => `[${c.timestamp}] ${c.speaker ?? "?"}: ${c.text}`).join("\n");
   const currentRolesJson = JSON.stringify(currentRoles, null, 2);
 
   const system = `You are a role-scoping assistant for Scale Army sales calls. Extract structured role information from the live call transcript, detect scope creep and missing info, and suggest objection handling.\n\nOur role-scoping conventions:\n\n${scopingRules}`;
@@ -146,7 +156,7 @@ export async function extractScope(
     messages: [
       {
         role: "user",
-        content: `Current Roles (from before this update):\n${currentRolesJson}\n\nTranscript so far:\n${transcriptText}`,
+        content: `Current Roles (from before this update):\n${currentRolesJson}\n\nMost recent transcript (Current Roles already reflects anything earlier that's been extracted):\n${transcriptText}`,
       },
     ],
   });
