@@ -4,8 +4,11 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import type { ExtensionConfig } from "../lib/storage";
 
-const TRANSCRIPT_BATCH_MS = 5000;
-const POLL_MS = 5000;
+// Shorter batch window = pricing/extraction refreshes sooner after the rep
+// finishes scoping a role, at the cost of ~2.5x more Claude API calls during
+// a live call — a fine trade for a real-time coaching tool at our call volume.
+const TRANSCRIPT_BATCH_MS = 2000;
+const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
