@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deal Assistant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Live sales-call coaching sidebar for Google Meet. Internal Scale Army tool.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
