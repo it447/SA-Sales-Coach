@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSession } from "../../../lib/sessions";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../../lib/authOptions";
+import { getSession, sessionTitle } from "../../../lib/sessions";
 import { colors } from "../../../lib/theme";
 import { Card, Badge } from "../../../components/ui";
 import { SummaryPanel } from "./summary-panel";
+import { DeleteSessionButton } from "../delete-session-button";
 
 function money(n: number | null): string {
   return typeof n === "number" ? `$${n.toLocaleString()}` : "—";
 }
 
 export default async function SessionDetailPage({ params }: { params: { id: string } }) {
+  const authSession = await getServerSession(authOptions);
   const session = await getSession(params.id);
   if (!session) notFound();
 
@@ -21,14 +25,15 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "1rem 0 2rem" }}>
         <div>
-          <h1 style={{ color: colors.cream, fontSize: "1.5rem" }}>
-            {session.roles.map((r) => r.title ?? "Untitled role").join(", ") || "No roles scoped"}
-          </h1>
+          <h1 style={{ color: colors.cream, fontSize: "1.5rem" }}>{sessionTitle(session)}</h1>
           <p style={{ color: colors.beige, fontSize: "0.9rem" }}>
             {session.repEmail} · {new Date(session.startedAt).toLocaleString()}
           </p>
         </div>
-        <Badge label={session.status.replace("_", " ")} />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <Badge label={session.status.replace("_", " ")} />
+          {authSession?.user?.isAdmin && <DeleteSessionButton sessionId={session.id} redirectTo="/dashboard" />}
+        </div>
       </div>
 
       <SummaryPanel sessionId={session.id} initialSummary={session.summary} />

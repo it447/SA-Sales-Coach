@@ -2,6 +2,13 @@ import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
 /**
+ * Only email allowed to do destructive things (deleting sessions) from the
+ * dashboard. Hardcoded per direction rather than a DB-backed roles table —
+ * there's exactly one admin right now and no UI to manage more yet.
+ */
+const ADMIN_EMAILS = new Set(["it@scalearmy.com"]);
+
+/**
  * Human-facing login for the dashboard (Phase 4) — distinct from
  * requireAuth() in lib/auth.ts, which gates the extension's API calls with
  * a shared bearer token. Only @scalearmy.com Google accounts may sign in;
@@ -30,6 +37,14 @@ export const authOptions: NextAuthOptions = {
     async signIn({ profile }) {
       const email = profile?.email ?? "";
       return email.toLowerCase().endsWith("@scalearmy.com");
+    },
+    async jwt({ token }) {
+      token.isAdmin = ADMIN_EMAILS.has((token.email ?? "").toLowerCase());
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) session.user.isAdmin = token.isAdmin ?? false;
+      return session;
     },
   },
 };

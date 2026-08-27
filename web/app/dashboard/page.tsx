@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../lib/authOptions";
-import { listSessions } from "../../lib/sessions";
+import { listSessions, sessionTitle } from "../../lib/sessions";
 import { colors } from "../../lib/theme";
 import { Card, Badge } from "../../components/ui";
 import { SignOutButton } from "./sign-out-button";
+import { DeleteSessionButton } from "./delete-session-button";
 
 const STATUS_TONE: Record<string, "neutral" | "success" | "warning" | "danger"> = {
   scoping: "neutral",
@@ -38,13 +39,16 @@ export default async function DashboardPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <p style={{ color: colors.cream, fontWeight: "bold", marginBottom: "0.25rem" }}>
-                    {s.roles.map((r) => r.title ?? "Untitled role").join(", ") || "No roles scoped yet"}
+                    {sessionTitle(s)}
                   </p>
                   <p style={{ color: colors.beige, fontSize: "0.85rem" }}>
                     {s.repEmail} · {new Date(s.startedAt).toLocaleString()}
                   </p>
                 </div>
-                <Badge label={s.status.replace("_", " ")} tone={STATUS_TONE[s.status] ?? "neutral"} />
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <Badge label={s.status.replace("_", " ")} tone={STATUS_TONE[s.status] ?? "neutral"} />
+                  {session?.user?.isAdmin && <DeleteSessionButton sessionId={s.id} />}
+                </div>
               </div>
             </Card>
           </Link>

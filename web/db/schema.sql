@@ -32,7 +32,8 @@ create table if not exists call_sessions (
 
   quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "priceTiers": null, "atClientBudget": null, "pricedRoleCount": 0, "totalRoleCount": 0, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb,
-  summary      text
+  summary      text,
+  meeting_name text
 );
 
 -- summary didn't exist when call_sessions was first created on production —
@@ -40,6 +41,12 @@ create table if not exists call_sessions (
 -- doesn't add it there. Populated on demand from the dashboard (Phase 4),
 -- not during the live call.
 alter table call_sessions add column if not exists summary text;
+
+-- meeting_name: the actual Google Meet call title (the extension reads the
+-- tab title when the rep starts the session), so the dashboard can show
+-- calls by their real meeting name instead of falling back to whatever
+-- role got scoped first.
+alter table call_sessions add column if not exists meeting_name text;
 
 -- call_phases didn't exist when call_sessions was first created on
 -- production, and "create table if not exists" above is a no-op against an

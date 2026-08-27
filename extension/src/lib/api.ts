@@ -32,10 +32,14 @@ async function apiFetch<T>(
   return response.data as T;
 }
 
-export function createSession(config: ExtensionConfig, meetLink: string): Promise<CallSession> {
+export function createSession(
+  config: ExtensionConfig,
+  meetLink: string,
+  meetingName: string | null
+): Promise<CallSession> {
   return apiFetch<CallSession>(config, "/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ meetLink, repEmail: config.repEmail }),
+    body: JSON.stringify({ meetLink, repEmail: config.repEmail, meetingName }),
   });
 }
 

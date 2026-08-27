@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   const authError = requireAuth(request);
   if (authError) return authError;
 
-  let body: { meetLink?: string; repEmail?: string };
+  let body: { meetLink?: string; repEmail?: string; meetingName?: string };
   try {
     body = await request.json();
   } catch {
@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await pool.query(
-      "insert into call_sessions (meet_link, rep_email) values ($1, $2) returning *",
-      [body.meetLink, body.repEmail]
+      "insert into call_sessions (meet_link, rep_email, meeting_name) values ($1, $2, $3) returning *",
+      [body.meetLink, body.repEmail, body.meetingName ?? null]
     );
     return NextResponse.json(rowToSession(result.rows[0]), { status: 201 });
   } catch (err) {

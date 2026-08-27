@@ -114,6 +114,8 @@ export interface CallPhases {
 export interface CallSession {
   id: string;
   meetLink: string;
+  /** The actual Google Meet call title, read from the tab title when the rep starts the session. */
+  meetingName: string | null;
   repEmail: string;
   status: CallSessionStatus;
   startedAt: string;
