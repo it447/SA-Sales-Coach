@@ -133,6 +133,19 @@ export interface RoleScope {
   firstTask: string | null;
   /** Answer to "what business outcome would an excellent hire in this role drive?" — null until addressed. Required for tech roles before a JD can be generated. */
   successOutcome: string | null;
+  /**
+   * Cost premiums detected from the transcript, mirroring the standalone
+   * pricing calculator's "Salary Adjustments" checkboxes — see
+   * SALARY_ADJUSTMENT_PCT in lib/pricing.ts for the percentages and
+   * config/scoping-rules.md for detection criteria. Only the highest
+   * applicable percentage is applied, never stacked.
+   */
+  salaryAdjustments: {
+    englishLevel: boolean;
+    certainIndustries: boolean;
+    superNicheTech: boolean;
+    seniorityAnd360: boolean;
+  };
 }
 
 export type ScopeFlagType =

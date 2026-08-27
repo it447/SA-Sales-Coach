@@ -39,6 +39,13 @@ export interface RoleScope {
   firstTask: string | null;
   /** Answer to "what business outcome would an excellent hire drive?" Required for tech roles before a JD can be generated. */
   successOutcome: string | null;
+  /** Cost premiums detected from the transcript, mirroring the standalone pricing calculator's "Salary Adjustments" checkboxes. Only the highest applicable one is applied. */
+  salaryAdjustments: {
+    englishLevel: boolean;
+    certainIndustries: boolean;
+    superNicheTech: boolean;
+    seniorityAnd360: boolean;
+  };
 }
 
 export interface ScopeFlag {

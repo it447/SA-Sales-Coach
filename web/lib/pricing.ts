@@ -58,6 +58,59 @@ export function getCommissionTier(margin: number, spread: number): CommissionTie
 const SENIORITY_ORDER = ["Junior", "Mid-Level", "Senior", "Senior+", "Senior++", "Senior+++"];
 
 /**
+ * Cost premiums, lifted verbatim from the standalone pricing calculator's
+ * "Salary Adjustments" checkboxes. "If two or more apply, only the highest
+ * percentage is applied ONCE" — see adjustmentMultiplier below.
+ */
+export const SALARY_ADJUSTMENT_PCT = {
+  englishLevel: 0.2,
+  certainIndustries: 0.3,
+  superNicheTech: 0.15,
+  seniorityAnd360: 0.3,
+} as const;
+
+/**
+ * The multiplier to apply to a role's base salary from pricing_data, based
+ * on whichever salaryAdjustments flags extraction detected — only the
+ * highest applicable percentage counts, never stacked.
+ */
+function adjustmentMultiplier(role: RoleScope): number {
+  const adj = role.salaryAdjustments;
+  if (!adj) return 1;
+  const pct = Math.max(
+    adj.englishLevel ? SALARY_ADJUSTMENT_PCT.englishLevel : 0,
+    adj.certainIndustries ? SALARY_ADJUSTMENT_PCT.certainIndustries : 0,
+    adj.superNicheTech ? SALARY_ADJUSTMENT_PCT.superNicheTech : 0,
+    adj.seniorityAnd360 ? SALARY_ADJUSTMENT_PCT.seniorityAnd360 : 0
+  );
+  return 1 + pct;
+}
+
+/** A pricing_data row's salary after applying its role's detected cost premium, if any. */
+function adjustedSalary(role: RoleScope, row: PricingDataRow): number {
+  return row.salary * adjustmentMultiplier(role);
+}
+
+const SALARY_ADJUSTMENT_LABELS: Record<keyof typeof SALARY_ADJUSTMENT_PCT, string> = {
+  englishLevel: "English level",
+  certainIndustries: "Certain industries",
+  superNicheTech: "Super niche technologies",
+  seniorityAnd360: "Seniority and 360 responsibilities",
+};
+
+/** Human-readable label for whichever adjustment actually applies to this role's price (the highest-percentage one detected), for display in the dashboard. null if none apply. */
+export function describeSalaryAdjustment(role: RoleScope): string | null {
+  const adj = role.salaryAdjustments;
+  if (!adj) return null;
+  const applicable = (Object.keys(SALARY_ADJUSTMENT_PCT) as (keyof typeof SALARY_ADJUSTMENT_PCT)[]).filter(
+    (key) => adj[key]
+  );
+  if (applicable.length === 0) return null;
+  const best = applicable.reduce((max, key) => (SALARY_ADJUSTMENT_PCT[key] > SALARY_ADJUSTMENT_PCT[max] ? key : max));
+  return `${SALARY_ADJUSTMENT_LABELS[best]} (+${Math.round(SALARY_ADJUSTMENT_PCT[best] * 100)}%)`;
+}
+
+/**
  * Finds the pricing_data row for a scoped role.
  *
  * Matches on title + seniority (case-insensitive), then narrows by region:
@@ -180,7 +233,7 @@ function findLowerSeniorityRecommendation(
 
     const newRows = [...matchedRows];
     newRows[i] = altRow;
-    const newTotalSalary = newRows.reduce((sum, row) => sum + row.salary, 0);
+    const newTotalSalary = newRows.reduce((sum, row, idx) => sum + adjustedSalary(roles[idx], row), 0);
     const newFinalPrice = newRows.reduce((sum, row) => sum + row.targetPrice, 0);
     const newSpread = newFinalPrice - newTotalSalary;
     const newMarginPct = newSpread / newFinalPrice;
@@ -256,7 +309,14 @@ export function calculateMargin(
   const pricedRoles = pricedPairs.map((pair) => pair.role);
   const matchedRows = pricedPairs.map((pair) => pair.row);
 
-  const totalSalary = matchedRows.reduce((sum, row) => sum + row.salary, 0);
+  // Cost premiums (salaryAdjustments) raise the effective salary used for
+  // margin/tier math, same as the standalone calculator's "Adjusted Range"
+  // — but NOT pricing_data's curated targetPrice, which stays our standard
+  // asking price for the role regardless of cost. That's deliberate: a
+  // pricier-to-source role should show thinner margin at the same price,
+  // prompting the rep to ask for more — not have the recommendation quietly
+  // inflate to hide it.
+  const totalSalary = pricedPairs.reduce((sum, pair) => sum + adjustedSalary(pair.role, pair.row), 0);
   const finalPrice = matchedRows.reduce((sum, row) => sum + row.targetPrice, 0);
 
   if (finalPrice <= 0) return nullResult;

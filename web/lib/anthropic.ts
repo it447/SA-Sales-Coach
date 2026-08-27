@@ -109,6 +109,30 @@ const EXTRACT_TOOL: Anthropic.Tool = {
               description:
                 "The client's answer to 'if you had someone excellent in this role, what business outcomes would they help drive?' / 'what would the business actually look like as a result?' — null until actually addressed in the transcript.",
             },
+            salaryAdjustments: {
+              type: "object",
+              description:
+                "Cost premiums this role's requirements suggest, mirroring the standalone pricing calculator's adjustment checkboxes. Only set a flag true when the transcript actually supports it — default everything false, don't guess. See scoping-rules.md for full criteria.",
+              properties: {
+                englishLevel: {
+                  type: "boolean",
+                  description: "True only if the client explicitly requires near-native or native English — not just 'good English' or unstated.",
+                },
+                certainIndustries: {
+                  type: "boolean",
+                  description: "True if the role is specifically for a SaaS/Tech, Fintech, or Healthcare/Healthtech/Pharma client — industries with a documented cost premium.",
+                },
+                superNicheTech: {
+                  type: "boolean",
+                  description: "True if the role requires a genuinely niche/rare tool or technology stack that's harder to source for — not a common stack like 'React' or 'Python'.",
+                },
+                seniorityAnd360: {
+                  type: "boolean",
+                  description: "True for a managerial role, or a role with an unusually long/broad list of responsibilities spanning multiple functions.",
+                },
+              },
+              required: ["englishLevel", "certainIndustries", "superNicheTech", "seniorityAnd360"],
+            },
           },
           required: [
             "id",
@@ -124,6 +148,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             "isTechRole",
             "firstTask",
             "successOutcome",
+            "salaryAdjustments",
           ],
         },
       },

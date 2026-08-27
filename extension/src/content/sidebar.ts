@@ -12,6 +12,22 @@ export interface SidebarCallbacks {
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtPct = (n: number) => Math.round(n * 100) + "%";
 
+/** Mirrors web/lib/pricing.ts's SALARY_ADJUSTMENT_PCT — display only, pricing itself happens server-side. */
+const SALARY_ADJUSTMENT_LABELS: { key: keyof RoleScope["salaryAdjustments"]; label: string; pct: number }[] = [
+  { key: "certainIndustries", label: "Certain industries", pct: 0.3 },
+  { key: "seniorityAnd360", label: "Seniority and 360 responsibilities", pct: 0.3 },
+  { key: "englishLevel", label: "English level", pct: 0.2 },
+  { key: "superNicheTech", label: "Super niche technologies", pct: 0.15 },
+];
+
+/** Whichever adjustment carries the highest percentage among the ones detected — only that one actually applies to price (see pricing.ts). */
+function salaryAdjustmentLabel(role: RoleScope): string | null {
+  const applicable = SALARY_ADJUSTMENT_LABELS.filter((a) => role.salaryAdjustments?.[a.key]);
+  if (applicable.length === 0) return null;
+  const best = applicable.reduce((max, a) => (a.pct > max.pct ? a : max));
+  return `${best.label} (+${Math.round(best.pct * 100)}%)`;
+}
+
 /**
  * Renders the coaching sidebar into a Shadow DOM host, isolated from
  * Meet's own styles. Uses event delegation (one listener on the root)
@@ -371,6 +387,7 @@ export class Sidebar {
           `<p class="muted">${label}: ${
             value ? escapeHtml(value) : `<span style="color:${colors.redAccent}">not answered</span>`
           }</p>`;
+        const adjustmentLabel = salaryAdjustmentLabel(role);
         return `
           <div class="subcard">
             <strong>${escapeHtml(role.title ?? "Untitled role")}</strong>
@@ -378,6 +395,7 @@ export class Sidebar {
             ${role.mustHaves.length ? `<p class="muted">Must-haves: ${escapeHtml(role.mustHaves.join(", "))}</p>` : ""}
             ${role.niceToHaves.length ? `<p class="muted">Nice-to-haves: ${escapeHtml(role.niceToHaves.join(", "))}</p>` : ""}
             ${typeof role.clientBudget === "number" ? `<p class="muted">Client budget: ${fmt(role.clientBudget)}/mo</p>` : ""}
+            ${adjustmentLabel ? `<p class="muted">Cost premium: ${escapeHtml(adjustmentLabel)}</p>` : ""}
             ${
               role.isTechRole
                 ? missingTechAnswer("First task", role.firstTask) + missingTechAnswer("Success outcome", role.successOutcome)
