@@ -254,6 +254,7 @@ export interface CallSession {
   repEmail: string;
   status: CallSessionStatus;
   startedAt: string;
+  updatedAt: string;
   transcript: TranscriptChunk[];
 
   roles: RoleScope[];
@@ -263,6 +264,9 @@ export interface CallSession {
   quote: QuoteState;
 
   jds: JobDescription[];
+
+  /** AI-generated recap (roles agreed, pricing, next steps) — generated on demand from the dashboard, not during the live call. */
+  summary: string | null;
 }
 
 /** Row shape for the pricing_data table (mirrors the legacy pricing calculator's policies.json). */

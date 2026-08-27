@@ -31,8 +31,15 @@ create table if not exists call_sessions (
   call_phases  jsonb not null default '{"agendaSet": false, "discoveryCovered": false, "consultativeDiagnosisGiven": false, "processExplained": false, "pricingDiscussed": false, "closeAttempted": false}'::jsonb,
 
   quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "priceTiers": null, "atClientBudget": null, "pricedRoleCount": 0, "totalRoleCount": 0, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
-  jds          jsonb not null default '[]'::jsonb
+  jds          jsonb not null default '[]'::jsonb,
+  summary      text
 );
+
+-- summary didn't exist when call_sessions was first created on production —
+-- see the call_phases comment above for why "create table if not exists"
+-- doesn't add it there. Populated on demand from the dashboard (Phase 4),
+-- not during the live call.
+alter table call_sessions add column if not exists summary text;
 
 -- call_phases didn't exist when call_sessions was first created on
 -- production, and "create table if not exists" above is a no-op against an

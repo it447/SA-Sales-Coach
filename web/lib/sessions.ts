@@ -19,6 +19,7 @@ interface CallSessionRow {
   call_phases: unknown;
   quote: unknown;
   jds: unknown;
+  summary: string | null;
 }
 
 const DEFAULT_CALL_PHASES: CallSession["callPhases"] = {
@@ -37,6 +38,7 @@ export function rowToSession(row: CallSessionRow): CallSession {
     repEmail: row.rep_email,
     status: row.status as CallSession["status"],
     startedAt: row.started_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
     transcript: row.transcript as CallSession["transcript"],
     roles: row.roles as CallSession["roles"],
     scopeFlags: row.scope_flags as CallSession["scopeFlags"],
@@ -45,6 +47,7 @@ export function rowToSession(row: CallSessionRow): CallSession {
     callPhases: (row.call_phases as CallSession["callPhases"]) ?? DEFAULT_CALL_PHASES,
     quote: row.quote as CallSession["quote"],
     jds: row.jds as CallSession["jds"],
+    summary: row.summary ?? null,
   };
 }
 
@@ -55,4 +58,12 @@ export async function getSession(id: string): Promise<CallSession | null> {
   );
   if (result.rows.length === 0) return null;
   return rowToSession(result.rows[0]);
+}
+
+/** Every call session, most recent first — powers the dashboard's session list. */
+export async function listSessions(): Promise<CallSession[]> {
+  const result = await pool.query<CallSessionRow>(
+    "select * from call_sessions order by started_at desc"
+  );
+  return result.rows.map(rowToSession);
 }

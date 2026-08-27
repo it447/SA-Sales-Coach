@@ -1,6 +1,7 @@
 import Image from "next/image";
+import Link from "next/link";
 import { colors } from "../lib/theme";
-import { Card } from "../components/ui";
+import { Card, Button } from "../components/ui";
 
 export default function HomePage() {
   return (
@@ -11,10 +12,13 @@ export default function HomePage() {
       </div>
 
       <Card title="Internal tool">
-        <p style={{ color: colors.beige }}>
-          This is the backend for the Deal Assistant Chrome extension. There
-          is no end-user UI here yet beyond the internal dashboard (Phase 4).
+        <p style={{ color: colors.beige, marginBottom: "1.5rem" }}>
+          This is the backend for the Deal Assistant Chrome extension. View
+          past call sessions, transcripts, and recaps in the dashboard.
         </p>
+        <Link href="/dashboard" style={{ textDecoration: "none" }}>
+          <Button>View call sessions</Button>
+        </Link>
       </Card>
     </main>
   );

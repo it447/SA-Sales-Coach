@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import path from "path";
 import { USA_BENCHMARK_ROLES } from "./types";
-import type { RoleScope, ScopeFlag, CallPhases, TranscriptChunk } from "./types";
+import type { RoleScope, ScopeFlag, CallPhases, TranscriptChunk, CallSession } from "./types";
 
 // Matches the model already in production use by the scale-army-jd-tool
 // agent, for consistency across our internal tools.
@@ -258,4 +258,36 @@ export async function generateJobDescription(role: RoleScope): Promise<string> {
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^_([^_]+)_/gm, "$1")
     .trim();
+}
+
+/**
+ * One-shot recap generated on demand from the dashboard (Phase 4), not
+ * during the live call — reads the full transcript plus whatever
+ * roles/quote/flags were already extracted and writes a plain-English
+ * summary of what was agreed. Not fed back into extraction; this is purely
+ * for a human reading the session afterward.
+ */
+export async function generateCallSummary(session: CallSession): Promise<string> {
+  const transcriptText = session.transcript
+    .map((c) => `[${c.timestamp}] ${c.speaker ?? "?"}: ${c.text}`)
+    .join("\n");
+
+  const system =
+    "You write short, plain-English recaps of Scale Army sales scoping calls for a manager reviewing the deal afterward. " +
+    "Cover: what role(s) were scoped and their key requirements, what was agreed on pricing (or left open), any unresolved flags/objections, and concrete next steps. " +
+    "Plain prose in short paragraphs, no markdown headers or bullet-heavy formatting, a few sentences per topic. If something wasn't addressed on the call, say so plainly rather than omitting it.";
+
+  const userMessage = `Roles scoped:\n${JSON.stringify(session.roles, null, 2)}\n\nQuote/pricing state:\n${JSON.stringify(session.quote, null, 2)}\n\nOpen flags:\n${JSON.stringify(session.scopeFlags.filter((f) => !f.resolved), null, 2)}\n\nFull transcript:\n${transcriptText}`;
+
+  const message = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 1500,
+    system,
+    messages: [{ role: "user", content: userMessage }],
+  });
+
+  const textBlock = message.content.find(
+    (block): block is Anthropic.TextBlock => block.type === "text"
+  );
+  return (textBlock?.text ?? "").trim();
 }
