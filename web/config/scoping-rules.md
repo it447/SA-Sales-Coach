@@ -43,6 +43,30 @@ A JD cannot be generated for a tech role until both are set (enforced by
 `/generate-jds`, not just this prompt) — the `missing_tech_answers` flag
 that surfaces this is added programmatically, not by you.
 
+## Salary adjustments (cost premiums)
+
+Mirrors the standalone pricing calculator's "Salary Adjustments" checkboxes
+(`web/lib/pricing.ts`'s `SALARY_ADJUSTMENT_PCT` has the exact percentages).
+Set each of `salaryAdjustments`'s four flags based on what the transcript
+actually supports — default everything `false`; don't set a flag just
+because a role is generically technical or senior-sounding. If more than
+one applies, that's fine to reflect honestly — only the highest percentage
+actually gets applied to price, handled programmatically, not by you.
+
+- **English level**: client explicitly requires near-native or native
+  English (not just "good English," and not unstated).
+- **Certain industries**: the role is specifically for a SaaS/Tech, Fintech,
+  or Healthcare/Healthtech/Pharma client.
+- **Super niche technologies**: the role requires a genuinely rare/niche
+  tool or tech stack that's harder to source for — not a common stack like
+  React, Python, or standard SQL.
+- **Seniority and 360 responsibilities**: a managerial role, or one with an
+  unusually broad list of responsibilities spanning multiple functions.
+
+_(TODO: confirm these four criteria and their percentages are still current
+— carried over from the standalone calculator, not re-confirmed for this
+tool.)_
+
 ## Objection-handling playbook
 
 Generic placeholder — replace with our real playbook once we have one.

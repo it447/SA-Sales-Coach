@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../lib/authOptions";
 import { getSession, sessionTitle } from "../../../lib/sessions";
+import { describeSalaryAdjustment } from "../../../lib/pricing";
 import { colors } from "../../../lib/theme";
 import { Card, Badge } from "../../../components/ui";
 import { SummaryPanel } from "./summary-panel";
@@ -53,6 +54,9 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
               )}
               {typeof role.clientBudget === "number" && (
                 <p style={{ color: colors.beige, fontSize: "0.9rem" }}>Client budget: {money(role.clientBudget)}/mo</p>
+              )}
+              {describeSalaryAdjustment(role) && (
+                <p style={{ color: colors.beige, fontSize: "0.9rem" }}>Cost premium: {describeSalaryAdjustment(role)}</p>
               )}
               {role.isTechRole && (
                 <>
