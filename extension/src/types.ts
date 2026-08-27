@@ -117,6 +117,7 @@ export interface CallSession {
   repEmail: string;
   status: CallSessionStatus;
   startedAt: string;
+  updatedAt: string;
   transcript: TranscriptChunk[];
   roles: RoleScope[];
   scopeFlags: ScopeFlag[];
@@ -137,4 +138,7 @@ export interface CallSession {
     lockedAt: string | null;
   };
   jds: JobDescription[];
+
+  /** AI-generated recap, generated on demand from the dashboard — not touched by the extension. */
+  summary: string | null;
 }
