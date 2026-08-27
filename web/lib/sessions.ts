@@ -20,6 +20,7 @@ interface CallSessionRow {
   quote: unknown;
   jds: unknown;
   summary: string | null;
+  meeting_name: string | null;
 }
 
 const DEFAULT_CALL_PHASES: CallSession["callPhases"] = {
@@ -35,6 +36,7 @@ export function rowToSession(row: CallSessionRow): CallSession {
   return {
     id: row.id,
     meetLink: row.meet_link,
+    meetingName: row.meeting_name ?? null,
     repEmail: row.rep_email,
     status: row.status as CallSession["status"],
     startedAt: row.started_at.toISOString(),
@@ -66,4 +68,18 @@ export async function listSessions(): Promise<CallSession[]> {
     "select * from call_sessions order by started_at desc"
   );
   return result.rows.map(rowToSession);
+}
+
+/** Permanently removes a call session. Admin-only — see lib/authOptions.ts's isAdmin flag. */
+export async function deleteSession(id: string): Promise<boolean> {
+  const result = await pool.query("delete from call_sessions where id = $1", [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** What the dashboard shows as a session's title: the real meeting name if the extension captured one, else a role-derived fallback. */
+export function sessionTitle(session: CallSession): string {
+  return (
+    session.meetingName ??
+    (session.roles.map((r) => r.title ?? "Untitled role").join(", ") || "No roles scoped yet")
+  );
 }
