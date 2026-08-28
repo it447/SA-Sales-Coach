@@ -1,23 +1,12 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
 import { createSession, ApiError } from "../lib/api";
+import { meetingNameFromTitle } from "../lib/meetingName";
 import type { ExtensionConfig } from "../lib/storage";
 
 const root = document.getElementById("root")!;
 
 function isMeetUrl(url: string | undefined): boolean {
   return !!url && url.startsWith("https://meet.google.com/");
-}
-
-/**
- * Google Meet tab titles are either the calendar event name (unsuffixed) or
- * just "Meet" for an ad-hoc call with no name — strip the latter down to
- * null so the dashboard falls back to its own role-derived label instead of
- * showing the meaningless word "Meet".
- */
-function meetingNameFromTabTitle(title: string | undefined): string | null {
-  const trimmed = title?.trim();
-  if (!trimmed || trimmed === "Meet") return null;
-  return trimmed;
 }
 
 function renderSettingsForm(existing: ExtensionConfig | null, message?: string): void {
@@ -100,7 +89,7 @@ async function renderMain(): Promise<void> {
     button.disabled = true;
     button.textContent = "Starting…";
     try {
-      const session = await createSession(config, meetLink, meetingNameFromTabTitle(tab?.title));
+      const session = await createSession(config, meetLink, meetingNameFromTitle(tab?.title));
       await setSessionIdForMeet(meetLink, session.id);
       renderMain();
     } catch (err) {
