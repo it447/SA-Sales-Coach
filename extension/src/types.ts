@@ -150,4 +150,7 @@ export interface CallSession {
 
   /** AI-generated recap, generated on demand from the dashboard — not touched by the extension. */
   summary: string | null;
+
+  /** null until recording was attempted for this call; true/false once known. */
+  recordingEnabled: boolean | null;
 }

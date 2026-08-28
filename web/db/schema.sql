@@ -33,7 +33,8 @@ create table if not exists call_sessions (
   quote        jsonb not null default '{"marginPct": null, "dealWorthIt": null, "finalPrice": null, "tier": null, "recommendations": null, "priceTiers": null, "atClientBudget": null, "pricedRoleCount": 0, "totalRoleCount": 0, "usaSalary": null, "monthlySavings": null, "annualSavings": null, "lockedAt": null}'::jsonb,
   jds          jsonb not null default '[]'::jsonb,
   summary      text,
-  meeting_name text
+  meeting_name text,
+  recording_enabled boolean
 );
 
 -- summary didn't exist when call_sessions was first created on production —
@@ -47,6 +48,12 @@ alter table call_sessions add column if not exists summary text;
 -- calls by their real meeting name instead of falling back to whatever
 -- role got scoped first.
 alter table call_sessions add column if not exists meeting_name text;
+
+-- recording_enabled: null until the extension attempts to set Google Meet's
+-- native recording for this call (see /api/sessions/:id/recording); true/false
+-- once we know whether it actually succeeded. Not something we infer --
+-- only ever set by that route.
+alter table call_sessions add column if not exists recording_enabled boolean;
 
 -- call_phases didn't exist when call_sessions was first created on
 -- production, and "create table if not exists" above is a no-op against an
@@ -81,6 +88,25 @@ create trigger trg_enforce_lock_before_jds
   before update on call_sessions
   for each row
   execute function enforce_lock_before_jds();
+
+-- ---------------------------------------------------------------------------
+-- google_connections
+--
+-- One row per rep who's connected their Google account for Meet recording
+-- control (see lib/googleMeetAuth.ts). refresh_token is a long-lived,
+-- sensitive credential -- it's what lets us patch that rep's own Meet
+-- spaces on their behalf going forward. Stored in plain Postgres columns
+-- like everything else in this internal tool; revisit with real encryption
+-- at rest if this tool's threat model ever changes.
+-- ---------------------------------------------------------------------------
+create table if not exists google_connections (
+  rep_email     text primary key,
+  refresh_token text not null,
+  access_token  text,
+  token_expiry  timestamptz,
+  connected_at  timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
 
 -- ---------------------------------------------------------------------------
 -- pricing_data
