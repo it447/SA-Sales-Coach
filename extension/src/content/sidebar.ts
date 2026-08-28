@@ -7,6 +7,7 @@ export interface SidebarCallbacks {
   onGenerateJds: () => void;
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
+  onToggleRecording: (enabled: boolean) => void;
 }
 
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString();
@@ -157,6 +158,8 @@ export class Sidebar {
     } else if (action === "resolve-flag") {
       const index = Number(target.dataset.flagIndex);
       this.callbacks.onResolveFlag(index);
+    } else if (action === "toggle-recording") {
+      this.callbacks.onToggleRecording(target.dataset.enabled === "true");
     } else if (action === "edit-role") {
       this.editingRoleId = target.dataset.roleId ?? null;
       this.render();
@@ -298,10 +301,35 @@ export class Sidebar {
     `;
   }
 
+  // Only meaningfully changes anything before the rep clicks "Join now" in
+  // Meet's own UI — Google's auto-recording setting is checked once, at
+  // join time, and there's no API to start/stop an already-running
+  // recording. Still shown for the whole call so the rep always sees the
+  // current state, even though clicking it mid-call does nothing.
+  private renderRecordingControl(s: CallSession): string {
+    if (s.recordingEnabled === true) {
+      return `
+        <span style="color:${colors.redAccent}" title="Only takes effect before you click Join in Meet">● Recording</span>
+        <button class="secondary" data-action="toggle-recording" data-enabled="false" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Turn off</button>
+      `;
+    }
+    if (s.recordingEnabled === false) {
+      return `
+        <span class="muted" title="Only takes effect before you click Join in Meet">Recording is off</span>
+        <button class="secondary" data-action="toggle-recording" data-enabled="true" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Turn on</button>
+      `;
+    }
+    return `
+      <span class="muted" title="Connect your Google account from the extension popup first">Recording not connected</span>
+      <button class="secondary" data-action="toggle-recording" data-enabled="true" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Enable</button>
+    `;
+  }
+
   private renderSession(s: CallSession): string {
     return `
       <div class="card">
         <span class="badge" style="background:${colors.orange}22;color:${colors.orange};border:1px solid ${colors.orange}">${escapeHtml(s.status)}</span>
+        <div style="margin-top:0.5rem">${this.renderRecordingControl(s)}</div>
       </div>
       ${this.renderCallStructure(s)}
       ${this.renderRoles(s)}

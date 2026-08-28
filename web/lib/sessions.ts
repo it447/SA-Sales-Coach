@@ -21,6 +21,7 @@ interface CallSessionRow {
   jds: unknown;
   summary: string | null;
   meeting_name: string | null;
+  recording_enabled: boolean | null;
 }
 
 const DEFAULT_CALL_PHASES: CallSession["callPhases"] = {
@@ -50,6 +51,7 @@ export function rowToSession(row: CallSessionRow): CallSession {
     quote: row.quote as CallSession["quote"],
     jds: row.jds as CallSession["jds"],
     summary: row.summary ?? null,
+    recordingEnabled: row.recording_enabled ?? null,
   };
 }
 

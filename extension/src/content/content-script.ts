@@ -41,6 +41,8 @@ const sidebar = new Sidebar({
       const roles = session.roles.map((r) => (r.id === role.id ? role : r));
       return api.saveRoles(config, sessionId, roles).then(applySession).catch(showError);
     }),
+  onToggleRecording: (enabled) =>
+    withSession((config, sessionId) => api.setRecording(config, sessionId, enabled).then(applySession).catch(showError)),
 });
 
 function applySession(session: Awaited<ReturnType<typeof api.getSession>>): void {
@@ -103,8 +105,12 @@ async function flushTranscriptLoop(): Promise<void> {
  * popup and click "Start Call" for every single call, which is exactly the
  * kind of per-call manual step this tool exists to remove. Runs at the same
  * point in the page lifecycle (the pre-join screen, before "Join now" is
- * clicked) that a future recording-config patch would also need to happen
- * at, so this doesn't foreclose that later.
+ * clicked) that setSpaceRecording below needs to happen at too.
+ *
+ * Only attempts recording for a session it JUST created — not one already
+ * found in storage (e.g. the content script re-running after a page
+ * refresh mid-call) — since re-patching an already-running call's
+ * recording config on every reload would be pointless at best.
  */
 async function ensureSession(config: ExtensionConfig): Promise<string | null> {
   const meetLink = normalizeMeetLink(location.href);
@@ -114,6 +120,19 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
   try {
     const session = await api.createSession(config, meetLink, meetingNameFromTitle(document.title));
     await setSessionIdForMeet(meetLink, session.id);
+
+    if (config.recordByDefault) {
+      try {
+        await api.setRecording(config, session.id, true);
+      } catch (err) {
+        // Recording is a bonus on top of the core transcript/pricing flow,
+        // never a blocker for it — surface the problem but keep going.
+        // setError (not setBanner) since watchForConfigAndSession's success
+        // path below unconditionally clears the banner right after this.
+        sidebar.setError(`Couldn't enable recording automatically: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     return session.id;
   } catch (err) {
     sidebar.setBanner(

@@ -128,3 +128,16 @@ export function generateJds(config: ExtensionConfig, sessionId: string): Promise
     method: "POST",
   });
 }
+
+/**
+ * Turns Google Meet's native recording on/off for this call — only
+ * meaningful before "Join now" is clicked (see meetSpace.ts server-side for
+ * why). Throws (via ApiError) if the rep hasn't connected their Google
+ * account yet, or isn't the meeting's organizer.
+ */
+export function setRecording(config: ExtensionConfig, sessionId: string, enabled: boolean): Promise<CallSession> {
+  return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/recording`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}

@@ -282,6 +282,9 @@ export interface CallSession {
 
   /** AI-generated recap (roles agreed, pricing, next steps) — generated on demand from the dashboard, not during the live call. */
   summary: string | null;
+
+  /** null until /api/sessions/:id/recording is called; true/false once we know whether Google Meet's native recording was actually turned on for this call. */
+  recordingEnabled: boolean | null;
 }
 
 /** Row shape for the pricing_data table (mirrors the legacy pricing calculator's policies.json). */

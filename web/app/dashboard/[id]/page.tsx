@@ -32,6 +32,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {session.recordingEnabled === true && <Badge label="recorded" tone="danger" />}
           <Badge label={session.status.replace("_", " ")} />
           {authSession?.user?.isAdmin && <DeleteSessionButton sessionId={session.id} redirectTo="/dashboard" />}
         </div>
