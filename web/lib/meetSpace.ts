@@ -25,6 +25,21 @@ interface MeetSpace {
   name: string; // canonical "spaces/{space}" resource name
 }
 
+async function getSpace(accessToken: string, meetLink: string): Promise<MeetSpace> {
+  const meetingCode = parseMeetingCode(meetLink);
+  if (!meetingCode) {
+    throw new Error(`Couldn't parse a Google Meet code out of "${meetLink}".`);
+  }
+
+  const res = await fetch(`${MEET_API_BASE}/spaces/${meetingCode}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Meet API couldn't find this meeting space: ${await res.text()}`);
+  }
+  return res.json();
+}
+
 /**
  * Turns Google Meet's native recording on/off for this meeting space. Only
  * works if the connected account (accessToken) is the space's organizer --
@@ -32,18 +47,7 @@ interface MeetSpace {
  * the rep rather than swallowing.
  */
 export async function setSpaceRecording(accessToken: string, meetLink: string, enabled: boolean): Promise<void> {
-  const meetingCode = parseMeetingCode(meetLink);
-  if (!meetingCode) {
-    throw new Error(`Couldn't parse a Google Meet code out of "${meetLink}".`);
-  }
-
-  const getRes = await fetch(`${MEET_API_BASE}/spaces/${meetingCode}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!getRes.ok) {
-    throw new Error(`Meet API couldn't find this meeting space: ${await getRes.text()}`);
-  }
-  const space: MeetSpace = await getRes.json();
+  const space = await getSpace(accessToken, meetLink);
 
   const patchRes = await fetch(
     `${MEET_API_BASE}/${space.name}?updateMask=config.artifactConfig.recordingConfig.autoRecordingGeneration`,
@@ -65,4 +69,54 @@ export async function setSpaceRecording(accessToken: string, meetLink: string, e
   if (!patchRes.ok) {
     throw new Error(`Meet API couldn't update recording settings: ${await patchRes.text()}`);
   }
+}
+
+interface ConferenceRecord {
+  name: string; // "conferenceRecords/{id}"
+  startTime?: string;
+}
+
+interface Recording {
+  driveDestination?: { file?: string };
+}
+
+/**
+ * The Drive file ID of the most recent finished recording for this meeting
+ * space, or null if none is found yet (Meet can take a while after a call
+ * ends to finish processing a recording -- this is meant to be called on
+ * demand, e.g. a "Find recording" button, not right after the call ends).
+ *
+ * Picks the most recently STARTED conference record for the space, on the
+ * assumption that whoever's looking is checking on a call that just
+ * happened -- a meeting space with a persistent code can be reused across
+ * many unrelated calls over time, so this isn't reliable for anything but
+ * "the last call held in this space."
+ */
+export async function getLatestRecordingFileId(accessToken: string, meetLink: string): Promise<string | null> {
+  const space = await getSpace(accessToken, meetLink);
+
+  const recordsUrl = new URL(`${MEET_API_BASE}/conferenceRecords`);
+  recordsUrl.searchParams.set("filter", `space.name = "${space.name}"`);
+  const recordsRes = await fetch(recordsUrl.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!recordsRes.ok) {
+    throw new Error(`Meet API couldn't list conference records: ${await recordsRes.text()}`);
+  }
+  const { conferenceRecords }: { conferenceRecords?: ConferenceRecord[] } = await recordsRes.json();
+  if (!conferenceRecords || conferenceRecords.length === 0) return null;
+
+  const latest = conferenceRecords.reduce((newest, record) =>
+    (record.startTime ?? "") > (newest.startTime ?? "") ? record : newest
+  );
+
+  const recordingsRes = await fetch(`${MEET_API_BASE}/${latest.name}/recordings`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!recordingsRes.ok) {
+    throw new Error(`Meet API couldn't list recordings: ${await recordingsRes.text()}`);
+  }
+  const { recordings }: { recordings?: Recording[] } = await recordingsRes.json();
+  const fileId = recordings?.[0]?.driveDestination?.file;
+  return fileId ?? null;
 }

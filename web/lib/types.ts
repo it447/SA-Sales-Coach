@@ -285,6 +285,9 @@ export interface CallSession {
 
   /** null until /api/sessions/:id/recording is called; true/false once we know whether Google Meet's native recording was actually turned on for this call. */
   recordingEnabled: boolean | null;
+
+  /** Drive file ID of the recording COPY in the shared company folder, once /api/sessions/:id/find-recording locates it. null until then. */
+  recordingDriveFileId: string | null;
 }
 
 /** Row shape for the pricing_data table (mirrors the legacy pricing calculator's policies.json). */
