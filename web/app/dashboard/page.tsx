@@ -50,6 +50,13 @@ export default async function DashboardPage() {
                   {session?.user?.isAdmin && <DeleteSessionButton sessionId={s.id} />}
                 </div>
               </div>
+              {s.recordingDriveFileId && (
+                <iframe
+                  src={`https://drive.google.com/file/d/${s.recordingDriveFileId}/preview`}
+                  allow="autoplay"
+                  style={{ width: "100%", height: "180px", border: "none", borderRadius: "8px", marginTop: "0.75rem" }}
+                />
+              )}
             </Card>
           </Link>
         ))

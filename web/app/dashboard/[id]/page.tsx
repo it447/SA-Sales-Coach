@@ -7,6 +7,7 @@ import { describeSalaryAdjustment } from "../../../lib/pricing";
 import { colors } from "../../../lib/theme";
 import { Card, Badge } from "../../../components/ui";
 import { SummaryPanel } from "./summary-panel";
+import { RecordingPanel } from "./recording-panel";
 import { DeleteSessionButton } from "../delete-session-button";
 
 function money(n: number | null): string {
@@ -39,6 +40,10 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
       </div>
 
       <SummaryPanel sessionId={session.id} initialSummary={session.summary} />
+
+      {session.recordingEnabled === true && (
+        <RecordingPanel sessionId={session.id} initialDriveFileId={session.recordingDriveFileId} />
+      )}
 
       <Card title="Roles">
         {session.roles.length === 0 ? (

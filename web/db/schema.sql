@@ -34,7 +34,8 @@ create table if not exists call_sessions (
   jds          jsonb not null default '[]'::jsonb,
   summary      text,
   meeting_name text,
-  recording_enabled boolean
+  recording_enabled boolean,
+  recording_drive_file_id text
 );
 
 -- summary didn't exist when call_sessions was first created on production —
@@ -54,6 +55,12 @@ alter table call_sessions add column if not exists meeting_name text;
 -- once we know whether it actually succeeded. Not something we infer --
 -- only ever set by that route.
 alter table call_sessions add column if not exists recording_enabled boolean;
+
+-- recording_drive_file_id: set once /api/sessions/:id/find-recording locates
+-- the finished recording and copies it into the shared company Drive folder
+-- (see lib/driveCopy.ts) -- Meet always saves the original to the rep's own
+-- personal Drive, so this is a COPY's file ID, not the original's.
+alter table call_sessions add column if not exists recording_drive_file_id text;
 
 -- call_phases didn't exist when call_sessions was first created on
 -- production, and "create table if not exists" above is a no-op against an

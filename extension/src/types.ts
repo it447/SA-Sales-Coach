@@ -153,4 +153,7 @@ export interface CallSession {
 
   /** null until recording was attempted for this call; true/false once known. */
   recordingEnabled: boolean | null;
+
+  /** Drive file ID of the recording, once the dashboard locates it — not touched by the extension. */
+  recordingDriveFileId: string | null;
 }
