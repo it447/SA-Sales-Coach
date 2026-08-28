@@ -1,5 +1,6 @@
-import { getConfig, getSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
+import { getConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
 import * as api from "../lib/api";
+import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import type { ExtensionConfig } from "../lib/storage";
@@ -96,6 +97,32 @@ async function flushTranscriptLoop(): Promise<void> {
   setTimeout(flushTranscriptLoop, TRANSCRIPT_BATCH_MS);
 }
 
+/**
+ * Creates a session for this call automatically the moment the content
+ * script sees a Meet page with none yet — the rep used to have to open the
+ * popup and click "Start Call" for every single call, which is exactly the
+ * kind of per-call manual step this tool exists to remove. Runs at the same
+ * point in the page lifecycle (the pre-join screen, before "Join now" is
+ * clicked) that a future recording-config patch would also need to happen
+ * at, so this doesn't foreclose that later.
+ */
+async function ensureSession(config: ExtensionConfig): Promise<string | null> {
+  const meetLink = normalizeMeetLink(location.href);
+  const existing = await getSessionIdForMeet(meetLink);
+  if (existing) return existing;
+
+  try {
+    const session = await api.createSession(config, meetLink, meetingNameFromTitle(document.title));
+    await setSessionIdForMeet(meetLink, session.id);
+    return session.id;
+  } catch (err) {
+    sidebar.setBanner(
+      `Couldn't start a session automatically (${err instanceof Error ? err.message : String(err)}) — click the extension icon to retry.`
+    );
+    return null;
+  }
+}
+
 function watchForConfigAndSession(): void {
   const check = async () => {
     const config = await getConfig();
@@ -105,10 +132,8 @@ function watchForConfigAndSession(): void {
       return;
     }
 
-    const meetLink = normalizeMeetLink(location.href);
-    const sessionId = await getSessionIdForMeet(meetLink);
+    const sessionId = await ensureSession(config);
     if (!sessionId) {
-      sidebar.setBanner("No active session for this call — click the extension icon to start one.");
       setTimeout(check, 3000);
       return;
     }
