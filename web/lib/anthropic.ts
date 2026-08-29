@@ -5,8 +5,19 @@ import { USA_BENCHMARK_ROLES } from "./types";
 import type { RoleScope, ScopeFlag, CallPhases, TranscriptChunk, CallSession } from "./types";
 
 // Matches the model already in production use by the scale-army-jd-tool
-// agent, for consistency across our internal tools.
+// agent, for consistency across our internal tools. Used for JD generation
+// and call recaps -- one-shot, quality-sensitive tasks where cost isn't
+// dominated by call frequency.
 const MODEL = "claude-sonnet-4-6";
+
+// Extraction runs on every live-call tick (every ~8s of active speech, see
+// TRANSCRIPT_BATCH_MS in the extension) -- a single 30-minute call can mean
+// hundreds of calls, so its per-call cost matters far more than its
+// per-call quality ceiling. Haiku is materially cheaper and this is a
+// structured field-filling task (forced tool use against a fixed schema),
+// not open-ended reasoning -- the accuracy trade is worth the ~3x cost cut
+// (before caching) at this call volume.
+const EXTRACTION_MODEL = "claude-haiku-4-5-20251001";
 
 let client: Anthropic | null = null;
 
@@ -228,9 +239,16 @@ export async function extractScope(
   const system = `You are a role-scoping assistant for Scale Army sales calls. Extract structured role information from the live call transcript, detect scope creep and missing info, suggest objection handling, and track whether the call is covering the phases of a healthy discovery call.\n\nOur role-scoping conventions:\n\n${scopingRules}\n\nOur call-structure conventions:\n\n${callScript}`;
 
   const message = await getClient().messages.create({
-    model: MODEL,
+    model: EXTRACTION_MODEL,
     max_tokens: 4000,
-    system,
+    // This system prompt (and EXTRACT_TOOL below) is byte-identical on
+    // every single extraction call -- only the user message (current
+    // roles/phases/transcript) changes. Caching it means every call after
+    // the first one on a given session pays full price only for that
+    // dynamic user content, not the whole scoping-rules/call-script prompt
+    // again. This is the single biggest lever on extraction cost given how
+    // often this runs.
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     tools: [EXTRACT_TOOL],
     tool_choice: { type: "tool", name: "update_scope" },
     messages: [
