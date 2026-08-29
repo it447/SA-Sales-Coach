@@ -6,9 +6,14 @@ import { Sidebar } from "./sidebar";
 import type { ExtensionConfig } from "../lib/storage";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
-// finishes scoping a role, at the cost of ~2.5x more Claude API calls during
-// a live call — a fine trade for a real-time coaching tool at our call volume.
-const TRANSCRIPT_BATCH_MS = 2000;
+// finishes scoping a role, at the cost of proportionally more Claude API
+// calls during a live call — extraction runs on essentially every tick
+// where someone's been talking, so this number directly sets call volume.
+// 8s still feels live for a coaching sidebar (the rep isn't watching for
+// sub-2-second updates) while cutting call count ~4x versus the original
+// 2s; combined with cheaper-model + prompt-caching changes in
+// lib/anthropic.ts, this is the extraction cost story end to end.
+const TRANSCRIPT_BATCH_MS = 8000;
 const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
