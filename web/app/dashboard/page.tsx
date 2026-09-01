@@ -1,26 +1,31 @@
-import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../lib/authOptions";
-import { listSessions, sessionTitle } from "../../lib/sessions";
+import { listSessions } from "../../lib/sessions";
 import { colors } from "../../lib/theme";
-import { Card, Badge } from "../../components/ui";
+import { Card } from "../../components/ui";
+import { ExtensionBanner } from "../../components/extension-banner";
 import { SignOutButton } from "./sign-out-button";
-import { DeleteSessionButton } from "./delete-session-button";
+import { SessionCard } from "./session-card";
+import { PeriodFilterSelect } from "./period-filter";
+import { parsePeriod, periodCutoff, groupSessionsByDay } from "../../lib/dashboardGrouping";
 
-const STATUS_TONE: Record<string, "neutral" | "success" | "warning" | "danger"> = {
-  scoping: "neutral",
-  scope_flagged: "danger",
-  priced: "warning",
-  jd_ready: "success",
-};
-
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { period?: string };
+}) {
   const session = await getServerSession(authOptions);
-  const sessions = await listSessions();
+  const allSessions = await listSessions();
+
+  const period = parsePeriod(searchParams.period);
+  const now = new Date();
+  const cutoff = periodCutoff(period, now);
+  const filtered = cutoff ? allSessions.filter((s) => new Date(s.startedAt) >= cutoff) : allSessions;
+  const groups = groupSessionsByDay(filtered, now);
 
   return (
-    <main style={{ maxWidth: "960px", margin: "0 auto", padding: "3rem 1.5rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
+    <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "3rem 1.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <h1 style={{ color: colors.cream, fontSize: "1.75rem" }}>Call Sessions</h1>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <span style={{ color: colors.beige, fontSize: "0.9rem" }}>{session?.user?.email}</span>
@@ -28,37 +33,34 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {sessions.length === 0 ? (
+      <div style={{ marginBottom: "1.5rem" }}>
+        <ExtensionBanner />
+      </div>
+
+      <div style={{ marginBottom: "1.5rem" }}>
+        <PeriodFilterSelect value={period} />
+      </div>
+
+      {filtered.length === 0 ? (
         <Card>
-          <p style={{ color: colors.beige }}>No calls recorded yet.</p>
+          <p style={{ color: colors.beige }}>No calls in this time period.</p>
         </Card>
       ) : (
-        sessions.map((s) => (
-          <Link key={s.id} href={`/dashboard/${s.id}`} style={{ textDecoration: "none" }}>
-            <Card>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <p style={{ color: colors.cream, fontWeight: "bold", marginBottom: "0.25rem" }}>
-                    {sessionTitle(s)}
-                  </p>
-                  <p style={{ color: colors.beige, fontSize: "0.85rem" }}>
-                    {s.repEmail} · {new Date(s.startedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <Badge label={s.status.replace("_", " ")} tone={STATUS_TONE[s.status] ?? "neutral"} />
-                  {session?.user?.isAdmin && <DeleteSessionButton sessionId={s.id} />}
-                </div>
-              </div>
-              {s.recordingDriveFileId && (
-                <iframe
-                  src={`https://drive.google.com/file/d/${s.recordingDriveFileId}/preview`}
-                  allow="autoplay"
-                  style={{ width: "100%", height: "180px", border: "none", borderRadius: "8px", marginTop: "0.75rem" }}
-                />
-              )}
-            </Card>
-          </Link>
+        groups.map((group) => (
+          <div key={group.label} style={{ marginBottom: "2rem" }}>
+            <h2 style={{ color: colors.beige, fontSize: "1rem", marginBottom: "0.75rem" }}>{group.label}</h2>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                gap: "1rem",
+              }}
+            >
+              {group.sessions.map((s) => (
+                <SessionCard key={s.id} session={s} isAdmin={!!session?.user?.isAdmin} />
+              ))}
+            </div>
+          </div>
         ))
       )}
     </main>

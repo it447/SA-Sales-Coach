@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { colors } from "../../lib/theme";
 import { Card, Button } from "../../components/ui";
+import { ExtensionBanner } from "../../components/extension-banner";
 
 function LoginContent() {
   const params = useSearchParams();
@@ -36,6 +37,7 @@ function LoginContent() {
             Sign in with Google
           </Button>
         </Card>
+        <ExtensionBanner />
       </div>
     </main>
   );
