@@ -7,10 +7,12 @@ import crypto from "crypto";
  * Redirects straight to Google's consent screen; app/api/google/callback
  * handles the return trip.
  *
- * meetings.space.settings is a non-sensitive scope (confirmed against
- * Google's own scope documentation), so this doesn't need Google's app
- * verification process, and doesn't need Workspace domain-wide delegation
- * -- each rep grants it individually for their own account.
+ * meetings.space.settings (turn recording on) and meetings.space.readonly
+ * (list conference records / find the recording afterward) are both
+ * non-sensitive scopes (confirmed against Google's own scope
+ * documentation), so this doesn't need Google's app verification process,
+ * and doesn't need Workspace domain-wide delegation -- each rep grants it
+ * individually for their own account.
  *
  * The Drive scope is needed to copy a finished recording (which Meet always
  * saves to the REP's own Drive -- there's no way to redirect that) into the
@@ -24,7 +26,7 @@ import crypto from "crypto";
  * switched to External, this scope needs Google's review before it works.
  */
 const SCOPE =
-  "https://www.googleapis.com/auth/meetings.space.settings https://www.googleapis.com/auth/drive openid email";
+  "https://www.googleapis.com/auth/meetings.space.settings https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/drive openid email";
 
 function signState(repEmail: string): string {
   const payload = Buffer.from(JSON.stringify({ repEmail, nonce: crypto.randomBytes(8).toString("hex") })).toString(

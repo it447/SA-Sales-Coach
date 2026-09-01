@@ -9,17 +9,23 @@
  * whole region's text as one blob rather than depending on Google's
  * obfuscated inner class names (e.g. `ygicle`, `VbkSUe`), since those are
  * far more likely to change between Meet deployments than the semantic
- * role/aria-label. Also keep the original aria-live selector as a
- * fallback in case Meet uses it in some other layout/locale we haven't
- * seen. If captions stop being detected after a Meet UI update, this is
- * the first place to look — inspect the DOM while captions are on and
- * adjust the selector below.
+ * role/aria-label. If captions stop being detected after a Meet UI update,
+ * this is the first place to look — inspect the DOM while captions are on
+ * and adjust the selector below.
+ *
+ * Deliberately NOT also matching the generic `[aria-live]` selector: Meet
+ * puts that on plenty of unrelated UI (mic/camera toast notifications, the
+ * "you joined" banner, the leave-call countdown, the device picker), and
+ * querying it alongside the real region pulled all of that into the
+ * transcript as if it were caption text. UI_CHROME_PATTERN strips text
+ * baked into the captions region itself, notably the "Jump to bottom" pill
+ * Meet renders as a nested child of the same region.
  */
 
 export type OnCaptionText = (text: string) => void;
 
-const CAPTIONS_SELECTOR =
-  'div[role="region"][aria-label="Captions"], [aria-live="polite"], [aria-live="assertive"]';
+const CAPTIONS_SELECTOR = 'div[role="region"][aria-label="Captions"]';
+const UI_CHROME_PATTERN = /arrow_downward\s*Jump to bottom|Live captions are on|Loading\.\.\./g;
 
 export class CaptionWatcher {
   private observer: MutationObserver | null = null;
@@ -54,7 +60,7 @@ export class CaptionWatcher {
   private scan(): void {
     const nodes = document.querySelectorAll<HTMLElement>(CAPTIONS_SELECTOR);
     nodes.forEach((node) => {
-      const text = node.textContent?.trim() ?? "";
+      const text = (node.textContent ?? "").replace(UI_CHROME_PATTERN, " ").trim();
       if (!text) return;
 
       const previous = this.lastTextByNode.get(node) ?? "";
