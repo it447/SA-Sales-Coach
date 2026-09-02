@@ -141,6 +141,7 @@ export interface CallSession {
     atClientBudget: AtClientBudget | null;
     pricedRoleCount: number;
     totalRoleCount: number;
+    unpricedRoles: { roleId: string; roleTitle: string | null; reason: string }[];
     usaSalary: number | null;
     monthlySavings: number | null;
     annualSavings: number | null;

@@ -233,6 +233,8 @@ export interface QuoteState {
   /** How many of the call's roles actually contributed to finalPrice — less than totalRoleCount means this is a partial quote. */
   pricedRoleCount: number;
   totalRoleCount: number;
+  /** Every role that isn't priced yet, with a plain-English reason why — surfaced next to "Calculate Price" so clicking it with something missing doesn't just look like nothing happened. */
+  unpricedRoles: { roleId: string; roleTitle: string | null; reason: string }[];
   /**
    * What a comparable USA hire would typically cost, for the "client
    * savings" comparison. null unless every role has a usaBenchmarkRole

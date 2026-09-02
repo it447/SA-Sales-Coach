@@ -34,6 +34,14 @@ export interface MarginResult {
   priceTiers: PriceTiers | null;
   /** null unless every priced role has a stated clientBudget. */
   atClientBudget: AtClientBudget | null;
+  /** Every role that didn't make it into finalPrice, with a human reason why — so a rep clicking "Calculate Price" with something missing sees what, instead of the button silently doing nothing. */
+  unpricedRoles: UnpricedRole[];
+}
+
+export interface UnpricedRole {
+  roleId: string;
+  roleTitle: string | null;
+  reason: string;
 }
 
 export interface UsaSavingsResult {
@@ -134,6 +142,24 @@ function matchPricingRow(role: RoleScope, pricingData: PricingDataRow[]): Pricin
 
   if (candidates.length === 0) return null;
   return candidates.reduce((cheapest, row) => (row.salary < cheapest.salary ? row : cheapest));
+}
+
+/** Explains why matchPricingRow returned null for this role, in plain English for the sidebar. */
+function explainUnpricedRole(role: RoleScope, pricingData: PricingDataRow[]): string {
+  if (!role.title) return "Role title not captured yet.";
+  if (!role.seniority) return "Seniority not captured yet.";
+
+  const titleSeniorityMatches = pricingData.filter(
+    (row) =>
+      row.role.toLowerCase() === role.title!.toLowerCase() &&
+      row.seniority.toLowerCase() === role.seniority!.toLowerCase()
+  );
+
+  if (titleSeniorityMatches.length === 0) {
+    return `"${role.title}" (${role.seniority}) isn't a recognized pricing title — try a more standard job title.`;
+  }
+
+  return `No pricing data for "${role.title}" (${role.seniority}) in the ${role.region ?? "stated"} region.`;
 }
 
 /**
@@ -285,6 +311,35 @@ export function calculateMargin(
   pricingData: PricingDataRow[]
 ): MarginResult {
   const totalRoleCount = roles.length;
+  if (totalRoleCount === 0) {
+    return {
+      marginPct: null,
+      dealWorthIt: null,
+      finalPrice: null,
+      tier: null,
+      recommendations: null,
+      pricedRoleCount: 0,
+      totalRoleCount,
+      pricedRoles: [],
+      priceTiers: null,
+      atClientBudget: null,
+      unpricedRoles: [],
+    };
+  }
+
+  const pricedPairs = roles
+    .map((role) => ({ role, row: matchPricingRow(role, pricingData) }))
+    .filter((pair): pair is { role: RoleScope; row: PricingDataRow } => pair.row !== null);
+
+  const pricedRoleIds = new Set(pricedPairs.map((pair) => pair.role.id));
+  const unpricedRoles: UnpricedRole[] = roles
+    .filter((role) => !pricedRoleIds.has(role.id))
+    .map((role) => ({
+      roleId: role.id,
+      roleTitle: role.title,
+      reason: explainUnpricedRole(role, pricingData),
+    }));
+
   const nullResult: MarginResult = {
     marginPct: null,
     dealWorthIt: null,
@@ -296,13 +351,8 @@ export function calculateMargin(
     pricedRoles: [],
     priceTiers: null,
     atClientBudget: null,
+    unpricedRoles,
   };
-
-  if (totalRoleCount === 0) return nullResult;
-
-  const pricedPairs = roles
-    .map((role) => ({ role, row: matchPricingRow(role, pricingData) }))
-    .filter((pair): pair is { role: RoleScope; row: PricingDataRow } => pair.row !== null);
 
   if (pricedPairs.length === 0) return nullResult;
 
@@ -377,6 +427,7 @@ export function calculateMargin(
     pricedRoles,
     priceTiers,
     atClientBudget,
+    unpricedRoles,
   };
 }
 

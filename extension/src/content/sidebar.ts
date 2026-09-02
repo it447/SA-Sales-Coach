@@ -499,8 +499,23 @@ export class Sidebar {
       lockedAt,
       pricedRoleCount,
       totalRoleCount,
+      // typeof/array check (not just reading it) because sessions quoted
+      // before this field existed have no unpricedRoles key at all yet --
+      // undefined, not [] -- until the next Calculate Price/ingest call
+      // rewrites the whole quote object.
+      unpricedRoles,
     } = s.quote;
     const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
+    const unpricedList = Array.isArray(unpricedRoles) ? unpricedRoles : [];
+    const unpricedNote =
+      unpricedList.length > 0
+        ? `<div class="banner" style="margin-top:0.4rem">
+             <strong>Why ${finalPrice === null ? "nothing's" : "some roles aren't"} priced yet:</strong>
+             <ul style="margin:0.3rem 0 0;padding-left:1.1rem">
+               ${unpricedList.map((r) => `<li>${escapeHtml(r.roleTitle ?? "Untitled role")}: ${escapeHtml(r.reason)}</li>`).join("")}
+             </ul>
+           </div>`
+        : "";
     const body = `
         ${
           finalPrice !== null
@@ -509,6 +524,7 @@ export class Sidebar {
                ${isPartial ? `<p class="muted">Partial quote — ${pricedRoleCount} of ${totalRoleCount} roles priced. The rest need more info before they're included.</p>` : ""}`
             : `<p class="muted">Not priced yet.</p>`
         }
+        ${unpricedNote}
         ${this.renderPriceTiers(priceTiers)}
         ${this.renderAtClientBudget(atClientBudget)}
         ${
