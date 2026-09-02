@@ -3,6 +3,7 @@ import * as api from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
+import { startNativeRecordingViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
@@ -18,6 +19,18 @@ const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
+// Set whenever the rep wants recording on for this call, regardless of
+// whether the pre-join API attempt reported success -- checked once they
+// actually join, to also try the in-call "click Record meeting" fallback
+// (see nativeRecording.ts). This runs unconditionally, not just when the
+// API call throws: real-world testing found Google's API can report
+// success (echoing back the requested config) while never actually
+// recording anything, with no error surfaced at all -- so API "success"
+// isn't trustworthy evidence recording will really happen. Attempting the
+// UI click regardless is safe: if auto-recording genuinely did start,
+// Meet's menu shows "Stop recording" at that point, not "Record meeting",
+// so the text-matched click below simply won't find anything to press.
+let recordingWantedForThisCall = false;
 
 const sidebar = new Sidebar({
   onRunQuote: () =>
@@ -127,6 +140,7 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
     await setSessionIdForMeet(meetLink, session.id);
 
     if (config.recordByDefault) {
+      recordingWantedForThisCall = true;
       try {
         await api.setRecording(config, session.id, true);
       } catch (err) {
@@ -134,6 +148,11 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
         // never a blocker for it — surface the problem but keep going.
         // setError (not setBanner) since watchForConfigAndSession's success
         // path below unconditionally clears the banner right after this.
+        // This API path only works when the rep is the meeting's organizer
+        // -- a permission failure here almost always means they aren't.
+        // Either way, the in-call UI-click fallback still gets tried once
+        // they join (see watchForCallJoin below) since even a reported
+        // success here isn't trustworthy proof recording will really start.
         sidebar.setError(`Couldn't enable recording automatically: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
@@ -167,6 +186,23 @@ function watchForConfigAndSession(): void {
     sidebar.setBanner(null);
     pollLoop();
     flushTranscriptLoop();
+
+    if (recordingWantedForThisCall) {
+      recordingWantedForThisCall = false;
+      watchForCallJoin(() => {
+        // A short delay lets Meet's own post-join UI (toolbar, side panels)
+        // finish settling before we go looking for "More options" --
+        // clicking too early risks the button not existing yet.
+        setTimeout(async () => {
+          const result = await startNativeRecordingViaUi();
+          if (result.ok) {
+            sidebar.setError(null);
+          } else {
+            sidebar.setError(`Couldn't enable recording automatically: ${result.reason}`);
+          }
+        }, 2000);
+      });
+    }
   };
   check();
 }
