@@ -3,6 +3,7 @@ import * as api from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
+import { startNativeRecordingViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
@@ -18,6 +19,13 @@ const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
+// Set when the pre-join, organizer-only API attempt to enable recording
+// fails -- checked once the rep actually joins the call, to trigger the
+// in-call "click Record meeting" fallback (see nativeRecording.ts). Only
+// the API path works pre-join; only the UI-click path works once in-call,
+// so the two are tried at different points in the page lifecycle rather
+// than one replacing the other.
+let needsRecordingUiFallback = false;
 
 const sidebar = new Sidebar({
   onRunQuote: () =>
@@ -134,7 +142,12 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
         // never a blocker for it — surface the problem but keep going.
         // setError (not setBanner) since watchForConfigAndSession's success
         // path below unconditionally clears the banner right after this.
+        // This API path only works when the rep is the meeting's organizer
+        // -- a permission failure here almost always means they aren't, so
+        // fall back to clicking Meet's own in-call Record button once
+        // they've actually joined (see watchForCallJoin below).
         sidebar.setError(`Couldn't enable recording automatically: ${err instanceof Error ? err.message : String(err)}`);
+        needsRecordingUiFallback = true;
       }
     }
 
@@ -167,6 +180,23 @@ function watchForConfigAndSession(): void {
     sidebar.setBanner(null);
     pollLoop();
     flushTranscriptLoop();
+
+    if (needsRecordingUiFallback) {
+      needsRecordingUiFallback = false;
+      watchForCallJoin(() => {
+        // A short delay lets Meet's own post-join UI (toolbar, side panels)
+        // finish settling before we go looking for "More options" --
+        // clicking too early risks the button not existing yet.
+        setTimeout(async () => {
+          const result = await startNativeRecordingViaUi();
+          if (result.ok) {
+            sidebar.setError(null);
+          } else {
+            sidebar.setError(`Couldn't enable recording automatically: ${result.reason}`);
+          }
+        }, 2000);
+      });
+    }
   };
   check();
 }
