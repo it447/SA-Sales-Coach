@@ -113,7 +113,13 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     return { ok: true, reason: "Recording is already active." };
   }
 
-  const recordMenuItem = menuItems ? findByText(menuItems, "recording") : null;
+  // Not directly confirmed whether this specific row also carries an
+  // aria-label the way the "Start recording" button does (see below), but
+  // it's a consistent enough Google pattern to try first regardless,
+  // falling back to the text search either way.
+  const recordMenuItem =
+    document.querySelector<HTMLElement>('[aria-label="Recording"], [aria-label*="Recording" i]') ??
+    (menuItems ? findByText(menuItems, "recording") : null);
   if (!recordMenuItem) {
     // Close whatever menu we opened rather than leaving Meet's UI in a
     // half-open state the rep didn't ask for.
@@ -128,12 +134,15 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
 
   // Clicking "Recording" opens a full side panel ("Record your video
   // call...", confirmed by direct inspection) with a "Start recording"
-  // button, not a small popup -- kept the role="dialog" scoping since
-  // Meet still likely marks it as a dialog for accessibility even though
-  // it renders as a side panel, but widened to plain divs/spans too in
-  // case it doesn't.
+  // button, not a small popup. Confirmed by direct inspection: the button
+  // itself carries aria-label="Start recording" (its visible label text
+  // lives in a separate aria-hidden span, standard Google pattern) -- an
+  // exact aria-label match is far more reliable than hunting through
+  // nested spans by text, so that's tried first with the text search only
+  // as a fallback in case a future UI change drops the aria-label.
   const confirmBtn = await waitFor(
     () =>
+      document.querySelector<HTMLElement>('button[aria-label="Start recording"], button[aria-label*="Start recording" i]') ??
       findByText(
         Array.from(document.querySelectorAll('[role="dialog"] button, [role="dialog"] div, [role="dialog"] span, button')),
         "start recording"
