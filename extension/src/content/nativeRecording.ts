@@ -37,14 +37,28 @@ export interface RecordingUiResult {
   reason: string;
 }
 
+/**
+ * Finds the element whose text most tightly matches needle -- the
+ * SHORTEST matching textContent, not just the first one found. Meet's
+ * menu rows are plain, deeply-nested divs (no semantic role="menuitem"),
+ * and a div's textContent includes all its descendants' text too, so a
+ * naive first-match risks returning a large wrapping container instead
+ * of the actual clickable row. Clicking the wrong (too-large) node can
+ * silently no-op given Meet's own jsaction event-delegation framework,
+ * which dispatches based on the real click target.
+ */
 function findByText(elements: Element[], needle: string): HTMLElement | null {
   const lower = needle.toLowerCase();
+  let best: HTMLElement | null = null;
+  let bestLength = Infinity;
   for (const el of elements) {
-    if ((el.textContent ?? "").trim().toLowerCase().includes(lower)) {
-      return el as HTMLElement;
+    const text = (el.textContent ?? "").trim().toLowerCase();
+    if (text.includes(lower) && text.length < bestLength) {
+      best = el as HTMLElement;
+      bestLength = text.length;
     }
   }
-  return null;
+  return best;
 }
 
 async function waitFor<T>(fn: () => T | null, timeoutMs: number, intervalMs = 150): Promise<T | null> {
@@ -57,7 +71,14 @@ async function waitFor<T>(fn: () => T | null, timeoutMs: number, intervalMs = 15
   return null;
 }
 
-/** Attempts to start recording via Meet's own in-call "More options" > "Record meeting" menu. */
+/**
+ * Attempts to start recording via Meet's own in-call "More options" menu.
+ * Confirmed by direct inspection (2026-09) of a real call's More-options
+ * menu: the entry is labeled plain "Recording" (an icon + that word),
+ * not "Record meeting" as first guessed -- clicking it opens a full side
+ * panel ("Record your video call...") with a "Start recording" button,
+ * not a small popup dialog.
+ */
 export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   const moreOptionsBtn = document.querySelector<HTMLElement>(
     'button[aria-label="More options"], button[aria-label*="More options" i]'
@@ -67,9 +88,14 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   }
   moreOptionsBtn.click();
 
+  // Meet's own menu items are plain divs driven by its internal
+  // jscontroller/jsaction framework, not standard ARIA role="menuitem"
+  // elements -- matching broadly on clickable-looking containers and
+  // filtering by visible text (below) is more robust here than assuming
+  // semantic roles that may not be present.
   const menuItems = await waitFor(
     () => {
-      const items = Array.from(document.querySelectorAll('[role="menuitem"], li, div[role="button"]'));
+      const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="button"], li, span, div'));
       return items.length > 0 ? items : null;
     },
     3000
@@ -78,16 +104,16 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   // This function is called unconditionally once the rep joins, even when
   // the pre-join API call reported success -- that report isn't
   // trustworthy proof recording actually started (see content-script.ts).
-  // If a recording genuinely is already running, the menu shows "Stop
-  // recording" instead of "Record meeting", which is real, live proof
-  // (unlike the API's echoed config) -- treat that as success, not a
-  // failure to find anything.
+  // Not confirmed yet whether an active recording changes this menu
+  // entry's label (e.g. to "Stop recording") or leaves it as "Recording"
+  // and only changes what's inside the panel it opens -- checked
+  // defensively; harmless if it never matches.
   if (menuItems && findByText(menuItems, "stop recording")) {
     document.body.click();
     return { ok: true, reason: "Recording is already active." };
   }
 
-  const recordMenuItem = menuItems ? findByText(menuItems, "record meeting") : null;
+  const recordMenuItem = menuItems ? findByText(menuItems, "recording") : null;
   if (!recordMenuItem) {
     // Close whatever menu we opened rather than leaving Meet's UI in a
     // half-open state the rep didn't ask for.
@@ -95,19 +121,29 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     return {
       ok: false,
       reason:
-        '"Record meeting" isn\'t available in the menu -- your organization\'s meeting host settings likely restrict recording to the meeting organizer only.',
+        '"Recording" isn\'t available in the More-options menu -- your organization\'s meeting host settings likely restrict recording to the meeting organizer only.',
     };
   }
   recordMenuItem.click();
 
+  // Clicking "Recording" opens a full side panel ("Record your video
+  // call...", confirmed by direct inspection) with a "Start recording"
+  // button, not a small popup -- kept the role="dialog" scoping since
+  // Meet still likely marks it as a dialog for accessibility even though
+  // it renders as a side panel, but widened to plain divs/spans too in
+  // case it doesn't.
   const confirmBtn = await waitFor(
-    () => findByText(Array.from(document.querySelectorAll('[role="dialog"] button')), "start recording"),
+    () =>
+      findByText(
+        Array.from(document.querySelectorAll('[role="dialog"] button, [role="dialog"] div, [role="dialog"] span, button')),
+        "start recording"
+      ),
     3000
   );
   if (!confirmBtn) {
     return {
       ok: false,
-      reason: 'Clicked "Record meeting" but no confirmation dialog appeared -- Meet\'s UI may have changed.',
+      reason: 'Clicked "Recording" but no "Start recording" confirmation appeared -- Meet\'s UI may have changed.',
     };
   }
   confirmBtn.click();
