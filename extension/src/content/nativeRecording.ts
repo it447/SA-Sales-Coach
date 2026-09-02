@@ -1,14 +1,25 @@
 /**
- * Fallback for starting Meet's native recording when the rep ISN'T the
- * meeting's organizer -- Google's Meet REST API
- * (meetSpace.ts's setSpaceRecording) can only be set by the space's
- * organizer, a hard API limitation with no workaround. This instead
- * automates the exact same click sequence a human would use: open the
- * in-call "More options" menu, click "Record meeting", confirm the dialog.
- * Meet's own UI (unlike the API) has historically let any internal
- * participant start a recording, subject to the org's meeting host
- * management settings -- so this can succeed in cases the API flatly
- * cannot.
+ * Fallback for starting Meet's native recording -- called unconditionally
+ * once the rep joins a call they wanted recorded, regardless of whether
+ * the pre-join API attempt (meetSpace.ts's setSpaceRecording) reported
+ * success. Two separate reasons that API alone isn't enough:
+ *
+ * 1. It's organizer-only -- a hard Google API limitation with no
+ *    workaround, and reps will usually be joining calls organized by
+ *    someone else in production.
+ * 2. Real-world testing found it can report success (echoing back the
+ *    requested config) while Google never actually records anything, with
+ *    no error surfaced at all -- so even a clean API response isn't
+ *    trustworthy proof recording will really happen.
+ *
+ * This instead automates the exact same click sequence a human would use:
+ * open the in-call "More options" menu, click "Record meeting", confirm
+ * the dialog. Meet's own UI has historically let any internal participant
+ * start a recording (subject to the org's meeting host management
+ * settings), which the REST API cannot do regardless of settings. Safe to
+ * call even when the API already succeeded: if recording is genuinely
+ * already running, the menu shows "Stop recording" instead, which this
+ * detects and treats as success rather than double-triggering anything.
  *
  * CAVEAT (same class as captions.ts): there is no public API for this UI,
  * so the selectors below are best-effort based on Meet's aria-label/role
@@ -56,10 +67,27 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   }
   moreOptionsBtn.click();
 
-  const recordMenuItem = await waitFor(
-    () => findByText(Array.from(document.querySelectorAll('[role="menuitem"], li, div[role="button"]')), "record meeting"),
+  const menuItems = await waitFor(
+    () => {
+      const items = Array.from(document.querySelectorAll('[role="menuitem"], li, div[role="button"]'));
+      return items.length > 0 ? items : null;
+    },
     3000
   );
+
+  // This function is called unconditionally once the rep joins, even when
+  // the pre-join API call reported success -- that report isn't
+  // trustworthy proof recording actually started (see content-script.ts).
+  // If a recording genuinely is already running, the menu shows "Stop
+  // recording" instead of "Record meeting", which is real, live proof
+  // (unlike the API's echoed config) -- treat that as success, not a
+  // failure to find anything.
+  if (menuItems && findByText(menuItems, "stop recording")) {
+    document.body.click();
+    return { ok: true, reason: "Recording is already active." };
+  }
+
+  const recordMenuItem = menuItems ? findByText(menuItems, "record meeting") : null;
   if (!recordMenuItem) {
     // Close whatever menu we opened rather than leaving Meet's UI in a
     // half-open state the rep didn't ask for.
