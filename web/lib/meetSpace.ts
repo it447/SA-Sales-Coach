@@ -40,13 +40,31 @@ async function getSpace(accessToken: string, meetLink: string): Promise<MeetSpac
   return res.json();
 }
 
+interface SpaceWithRecordingConfig extends MeetSpace {
+  config?: { artifactConfig?: { recordingConfig?: { autoRecordingGeneration?: string } } };
+}
+
 /**
  * Turns Google Meet's native recording on/off for this meeting space. Only
  * works if the connected account (accessToken) is the space's organizer --
  * throws with Meet's own error message otherwise, which callers surface to
  * the rep rather than swallowing.
+ *
+ * A 200 response here does NOT by itself prove Google will actually
+ * record -- Google accepts the PATCH and echoes back the resulting
+ * resource, but real-world testing found cases where the org's recording
+ * policy silently prevented anything from ever being recorded despite the
+ * API reporting success with no error at all. So this reads the
+ * PATCH response's own echoed config back and returns it, and the caller
+ * (the /recording route) treats a mismatch between what was requested and
+ * what Google confirms as a failure -- surfacing something concrete
+ * instead of a false "recorded" badge.
  */
-export async function setSpaceRecording(accessToken: string, meetLink: string, enabled: boolean): Promise<void> {
+export async function setSpaceRecording(
+  accessToken: string,
+  meetLink: string,
+  enabled: boolean
+): Promise<{ confirmedState: string | undefined }> {
   const space = await getSpace(accessToken, meetLink);
 
   const patchRes = await fetch(
@@ -66,9 +84,18 @@ export async function setSpaceRecording(accessToken: string, meetLink: string, e
       }),
     }
   );
+  const patchText = await patchRes.text();
   if (!patchRes.ok) {
-    throw new Error(`Meet API couldn't update recording settings: ${await patchRes.text()}`);
+    throw new Error(`Meet API couldn't update recording settings: ${patchText}`);
   }
+
+  let updated: SpaceWithRecordingConfig = {} as SpaceWithRecordingConfig;
+  try {
+    updated = JSON.parse(patchText) as SpaceWithRecordingConfig;
+  } catch {
+    // Fall through with confirmedState undefined -- treated as a mismatch below.
+  }
+  return { confirmedState: updated.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration };
 }
 
 interface ConferenceRecord {
