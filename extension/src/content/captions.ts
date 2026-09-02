@@ -20,6 +20,24 @@
  * transcript as if it were caption text. UI_CHROME_PATTERN strips text
  * baked into the captions region itself, notably the "Jump to bottom" pill
  * Meet renders as a nested child of the same region.
+ *
+ * Diffing is done against a single `lastCombinedText` string, NOT per-node
+ * (e.g. a WeakMap keyed by the DOM node) -- Meet's captions region gets
+ * recreated as a new element on updates rather than mutated in place, so
+ * anything keyed by node identity loses track of "previous" on every
+ * single update and re-emits the entire accumulated sentence from
+ * scratch each time. Re-querying the selector and combining/deduping
+ * whatever text is on screen right now sidesteps that entirely.
+ *
+ * The delta itself is everything after the LONGEST COMMON PREFIX of the
+ * old and new text, not "new text starting with the old text verbatim".
+ * Google's live captions constantly revise already-shown text as an
+ * utterance continues -- most visibly, a tentative period gets replaced
+ * as soon as more words arrive ("Hi there." -> "Hi there, so.") -- so a
+ * strict startsWith check treats nearly every update as an unrelated new
+ * line and re-emits the entire growing sentence on every revision.
+ * Common-prefix diffing tolerates that: a one-word punctuation revision
+ * only emits the changed tail, not the whole sentence again.
  */
 
 export type OnCaptionText = (text: string) => void;
@@ -27,9 +45,16 @@ export type OnCaptionText = (text: string) => void;
 const CAPTIONS_SELECTOR = 'div[role="region"][aria-label="Captions"]';
 const UI_CHROME_PATTERN = /arrow_downward\s*Jump to bottom|Live captions are on|Loading\.\.\./g;
 
+function commonPrefixLength(a: string, b: string): number {
+  const max = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < max && a[i] === b[i]) i++;
+  return i;
+}
+
 export class CaptionWatcher {
   private observer: MutationObserver | null = null;
-  private lastTextByNode = new WeakMap<Element, string>();
+  private lastCombinedText = "";
   private hasSeenAnyCaption = false;
   private onText: OnCaptionText;
 
@@ -59,25 +84,30 @@ export class CaptionWatcher {
 
   private scan(): void {
     const nodes = document.querySelectorAll<HTMLElement>(CAPTIONS_SELECTOR);
+    if (nodes.length === 0) return;
+
+    // Dedupe identical text across nodes -- e.g. a visually-hidden
+    // screen-reader mirror of the same captions alongside the visible
+    // region would otherwise double every line.
+    const texts = new Set<string>();
     nodes.forEach((node) => {
-      const text = (node.textContent ?? "").replace(UI_CHROME_PATTERN, " ").trim();
-      if (!text) return;
-
-      const previous = this.lastTextByNode.get(node) ?? "";
-      if (text === previous) return;
-
-      this.hasSeenAnyCaption = true;
-
-      // Meet typically rewrites the same line in place as a sentence is
-      // being spoken, then starts a fresh line for the next utterance.
-      // If the new text extends the old one, only emit the new suffix;
-      // otherwise treat it as an unrelated new line.
-      const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
-      if (delta.trim()) {
-        this.onText(delta.trim());
-      }
-
-      this.lastTextByNode.set(node, text);
+      const text = (node.textContent ?? "")
+        .replace(UI_CHROME_PATTERN, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text) texts.add(text);
     });
+    const combined = Array.from(texts).join(" ");
+    if (!combined || combined === this.lastCombinedText) return;
+
+    this.hasSeenAnyCaption = true;
+
+    const prefixLen = commonPrefixLength(this.lastCombinedText, combined);
+    const delta = combined.slice(prefixLen).trim();
+    if (delta) {
+      this.onText(delta);
+    }
+
+    this.lastCombinedText = combined;
   }
 }

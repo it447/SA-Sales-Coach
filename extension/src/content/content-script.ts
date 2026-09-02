@@ -156,6 +156,8 @@ function watchForConfigAndSession(): void {
       return;
     }
 
+    sidebar.setDashboardBaseUrl(config.apiBaseUrl);
+
     const sessionId = await ensureSession(config);
     if (!sessionId) {
       setTimeout(check, 3000);

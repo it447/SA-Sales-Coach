@@ -48,6 +48,15 @@ export class Sidebar {
   private editingRoleId: string | null = null;
   private expandedJdRoleId: string | null = null;
   private busy = false;
+  // Which data-action is in flight, so a busy button can say what it's
+  // doing (e.g. "Generating…") instead of just going disabled/grey — a
+  // multi-second Claude call with no textual feedback reads as "did my
+  // click even register?".
+  private busyAction: string | null = null;
+  // The web dashboard's base URL (same as config.apiBaseUrl) — set once
+  // config loads, so a generated JD can link out to the full dashboard
+  // view instead of only the cramped inline sidebar preview.
+  private dashboardBaseUrl: string | null = null;
   // Collapsed by default: a fixed 320px panel permanently covering the
   // right edge of the page is a bad time when a rep is screen-sharing —
   // it overlaps whatever they're presenting, since Meet has no idea our
@@ -119,8 +128,14 @@ export class Sidebar {
     this.render();
   }
 
-  setBusy(busy: boolean): void {
+  setBusy(busy: boolean, action?: string): void {
     this.busy = busy;
+    this.busyAction = busy ? (action ?? null) : null;
+    this.render();
+  }
+
+  setDashboardBaseUrl(url: string): void {
+    this.dashboardBaseUrl = url;
     this.render();
   }
 
@@ -147,13 +162,13 @@ export class Sidebar {
     } else if (action === "dismiss-error") {
       this.setError(null);
     } else if (action === "run-quote") {
-      this.setBusy(true);
+      this.setBusy(true, action);
       this.callbacks.onRunQuote();
     } else if (action === "lock-price") {
-      this.setBusy(true);
+      this.setBusy(true, action);
       this.callbacks.onLockPrice();
     } else if (action === "generate-jds") {
-      this.setBusy(true);
+      this.setBusy(true, action);
       this.callbacks.onGenerateJds();
     } else if (action === "resolve-flag") {
       const index = Number(target.dataset.flagIndex);
@@ -484,8 +499,23 @@ export class Sidebar {
       lockedAt,
       pricedRoleCount,
       totalRoleCount,
+      // typeof/array check (not just reading it) because sessions quoted
+      // before this field existed have no unpricedRoles key at all yet --
+      // undefined, not [] -- until the next Calculate Price/ingest call
+      // rewrites the whole quote object.
+      unpricedRoles,
     } = s.quote;
     const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
+    const unpricedList = Array.isArray(unpricedRoles) ? unpricedRoles : [];
+    const unpricedNote =
+      unpricedList.length > 0
+        ? `<div class="banner" style="margin-top:0.4rem">
+             <strong>Why ${finalPrice === null ? "nothing's" : "some roles aren't"} priced yet:</strong>
+             <ul style="margin:0.3rem 0 0;padding-left:1.1rem">
+               ${unpricedList.map((r) => `<li>${escapeHtml(r.roleTitle ?? "Untitled role")}: ${escapeHtml(r.reason)}</li>`).join("")}
+             </ul>
+           </div>`
+        : "";
     const body = `
         ${
           finalPrice !== null
@@ -494,6 +524,7 @@ export class Sidebar {
                ${isPartial ? `<p class="muted">Partial quote — ${pricedRoleCount} of ${totalRoleCount} roles priced. The rest need more info before they're included.</p>` : ""}`
             : `<p class="muted">Not priced yet.</p>`
         }
+        ${unpricedNote}
         ${this.renderPriceTiers(priceTiers)}
         ${this.renderAtClientBudget(atClientBudget)}
         ${
@@ -505,8 +536,8 @@ export class Sidebar {
             : ""
         }
         ${this.renderRecommendations(recommendations)}
-        ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>Calculate Price</button>` : ""}
-        ${finalPrice !== null && !lockedAt ? `<button data-action="lock-price" ${this.busy ? "disabled" : ""}>Lock Price With Client</button>` : ""}
+        ${!lockedAt ? `<button data-action="run-quote" ${this.busy ? "disabled" : ""}>${this.busyAction === "run-quote" ? "Calculating…" : "Calculate Price"}</button>` : ""}
+        ${finalPrice !== null && !lockedAt ? `<button data-action="lock-price" ${this.busy ? "disabled" : ""}>${this.busyAction === "lock-price" ? "Locking…" : "Lock Price With Client"}</button>` : ""}
         ${lockedAt ? `<p class="muted">Locked ${new Date(lockedAt).toLocaleTimeString()}</p>` : ""}
     `;
     return this.renderCard("quote", "Pricing", body);
@@ -583,8 +614,22 @@ export class Sidebar {
 
   private renderJds(s: CallSession): string {
     if (!s.quote.lockedAt) return "";
+    const missingRoles = s.roles.filter((r) => !s.jds.some((jd) => jd.roleId === r.id));
+    const generateLabel = this.busyAction === "generate-jds" ? "Generating…" : s.jds.length === 0 ? "Generate JDs" : "Generate remaining JDs";
+    const dashboardLink =
+      s.jds.length > 0 && this.dashboardBaseUrl
+        ? `<p class="muted" style="margin:0 0 0.5rem">
+             <a href="${escapeAttr(this.dashboardBaseUrl)}/dashboard/${s.id}" target="_blank" rel="noopener noreferrer">Open all JDs in the dashboard ↗</a>
+           </p>`
+        : "";
     const body = `
-        ${s.jds.length === 0 ? `<button data-action="generate-jds" ${this.busy ? "disabled" : ""}>Generate JDs</button>` : ""}
+        ${missingRoles.length > 0 ? `<button data-action="generate-jds" ${this.busy ? "disabled" : ""}>${generateLabel}</button>` : ""}
+        ${
+          missingRoles.length > 0 && s.jds.length > 0
+            ? `<p class="muted" style="margin:0.3rem 0">Still missing: ${missingRoles.map((r) => escapeHtml(r.title ?? "Untitled role")).join(", ")} — see Flags for why.</p>`
+            : ""
+        }
+        ${dashboardLink}
         ${s.jds
           .map((jd) => {
             const role = s.roles.find((r) => r.id === jd.roleId);

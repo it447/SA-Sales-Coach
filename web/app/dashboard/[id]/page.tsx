@@ -89,6 +89,20 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
           Priced {session.quote.pricedRoleCount} of {session.quote.totalRoleCount} roles
           {session.quote.lockedAt ? ` · Locked ${new Date(session.quote.lockedAt).toLocaleString()}` : " · Not locked"}
         </p>
+        {session.quote.unpricedRoles?.length > 0 && (
+          <div style={{ marginTop: "0.5rem" }}>
+            <p style={{ color: colors.yellowAccent, fontSize: "0.85rem", fontWeight: "bold" }}>
+              Why {session.quote.finalPrice === null ? "nothing's" : "some roles aren't"} priced:
+            </p>
+            <ul style={{ color: colors.beige, fontSize: "0.85rem", margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+              {session.quote.unpricedRoles.map((r, i) => (
+                <li key={i}>
+                  {r.roleTitle ?? "Untitled role"}: {r.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
 
       {session.scopeFlags.some((f) => !f.resolved) && (

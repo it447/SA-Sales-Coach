@@ -78,6 +78,7 @@ export async function runQuote(session: CallSession): Promise<CallSession> {
     pricedRoles,
     priceTiers,
     atClientBudget,
+    unpricedRoles,
   } = calculateMargin(session.roles, pricingData);
   // Uses pricedRoles (not session.roles) so savings stay apples-to-apples
   // with a partial quote — comparing USA cost for a role that isn't even
@@ -98,6 +99,7 @@ export async function runQuote(session: CallSession): Promise<CallSession> {
     atClientBudget,
     pricedRoleCount,
     totalRoleCount,
+    unpricedRoles,
     usaSalary,
     monthlySavings,
     annualSavings,

@@ -41,7 +41,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   try {
-    await setSpaceRecording(accessToken, session.meetLink, body.enabled);
+    const { confirmedState } = await setSpaceRecording(accessToken, session.meetLink, body.enabled);
+    const expected = body.enabled ? "ON" : "OFF";
+
+    if (confirmedState !== expected) {
+      await pool.query("update call_sessions set recording_enabled = false where id = $1", [params.id]);
+      return NextResponse.json(
+        {
+          error: `Google accepted the recording request but reports the setting as "${confirmedState ?? "unknown"}" instead of "${expected}" -- Google's API call succeeds even when an account-level restriction silently prevents anything from actually being recorded. Check the Workspace admin's Meet recording policy and audit log for this account, since "Let people record their meetings" being ON org-wide doesn't rule out a more specific restriction.`,
+        },
+        { status: 502 }
+      );
+    }
+
     const result = await pool.query(
       "update call_sessions set recording_enabled = $1 where id = $2 returning *",
       [body.enabled, params.id]
