@@ -19,7 +19,6 @@ function isMeetUrl(url: string | undefined): boolean {
 function renderSettingsForm(existing: ExtensionConfig | null, message?: string): void {
   const apiBaseUrlValue = existing?.apiBaseUrl ?? "https://sa-sales-coach.vercel.app";
   const repEmailValue = existing?.repEmail ?? "";
-  const recordByDefault = existing?.recordByDefault ?? true;
 
   root.innerHTML = `
     <h1>Deal Assistant Settings</h1>
@@ -36,13 +35,9 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
       <label>Your email</label>
       <input id="repEmail" value="${repEmailValue}" />
     </div>
-    <div class="field">
-      <label><input id="recordByDefault" type="checkbox" ${recordByDefault ? "checked" : ""} /> Record calls by default</label>
-      <p class="muted">Turns on Google Meet's native recording automatically when you start a call. Turn off per-call in the sidebar if the client objects.</p>
-    </div>
     <button id="save">Save Settings</button>
     <hr />
-    <p class="muted">To enable recording, connect the Google account you host your calls with:</p>
+    <p class="muted">Optional -- only needed for the manual "Recording" toggle in the sidebar and finding a Meet-recorded file in Drive. Not required for the tab recording (this device) feature.</p>
     <button class="secondary" id="connectGoogle">Connect Google Account</button>
   `;
 
@@ -50,14 +45,13 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
     const apiBaseUrl = (document.getElementById("apiBaseUrl") as HTMLInputElement).value.trim().replace(/\/$/, "");
     const apiKey = (document.getElementById("apiKey") as HTMLInputElement).value.trim();
     const repEmail = (document.getElementById("repEmail") as HTMLInputElement).value.trim();
-    const recordByDefaultChecked = (document.getElementById("recordByDefault") as HTMLInputElement).checked;
 
     if (!apiBaseUrl || !apiKey || !repEmail) {
       renderSettingsForm(existing, "All three fields are required.");
       return;
     }
 
-    await setConfig({ apiBaseUrl, apiKey, repEmail, recordByDefault: recordByDefaultChecked });
+    await setConfig({ apiBaseUrl, apiKey, repEmail });
     renderMain();
   });
 

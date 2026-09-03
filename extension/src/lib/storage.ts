@@ -8,12 +8,6 @@ export interface ExtensionConfig {
   apiBaseUrl: string;
   apiKey: string;
   repEmail: string;
-  /**
-   * Whether a new call should have Google Meet's native recording turned on
-   * automatically. Per direction: default to recording, and the rep turns
-   * it off for a specific call if the client objects — not the reverse.
-   */
-  recordByDefault: boolean;
 }
 
 const CONFIG_KEY = "dealAssistantConfig";
@@ -21,11 +15,7 @@ const SESSIONS_KEY = "dealAssistantSessions"; // { [meetLink]: sessionId }
 
 export async function getConfig(): Promise<ExtensionConfig | null> {
   const result = await chrome.storage.local.get(CONFIG_KEY);
-  const config = result[CONFIG_KEY] ?? null;
-  // recordByDefault didn't exist on configs saved before this field was
-  // added -- default such configs to true (the standing policy) rather
-  // than undefined/falsy.
-  return config ? { recordByDefault: true, ...config } : null;
+  return result[CONFIG_KEY] ?? null;
 }
 
 export async function setConfig(config: ExtensionConfig): Promise<void> {
