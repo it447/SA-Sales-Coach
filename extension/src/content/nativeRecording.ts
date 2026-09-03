@@ -262,6 +262,31 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   console.log("[DealAssistant] confirmBtn found:", confirmBtn.outerHTML.slice(0, 300));
   confirmBtn.click();
 
+  // Real-call testing found clicking "Start recording" doesn't actually
+  // start anything by itself -- it opens a SECOND consent dialog ("Make
+  // sure everyone is ready", warning that recording without consent may
+  // be illegal) with its own "Start"/"Cancel" buttons, and recording only
+  // truly begins once "Start" there is clicked too. Matching on exact
+  // trimmed text "start" (not a substring match) is safe here: no other
+  // button on the page has that as its *entire* label, unlike "Start
+  // recording" which does substring-overlap with this if not exact.
+  const secondConfirmBtn = await waitFor(
+    () =>
+      Array.from(document.querySelectorAll<HTMLElement>("button")).find(
+        (b) => (b.textContent ?? "").trim().toLowerCase() === "start"
+      ) ?? null,
+    5000
+  );
+  if (secondConfirmBtn) {
+    console.log("[DealAssistant] secondConfirmBtn (consent dialog) found, clicking:", secondConfirmBtn.outerHTML.slice(0, 300));
+    secondConfirmBtn.click();
+  } else {
+    // Not necessarily a failure -- this consent dialog may not always
+    // appear (e.g. depending on org policy or meeting type), so recording
+    // may already be running from the first click.
+    console.log("[DealAssistant] no second consent dialog appeared -- assuming recording already started.");
+  }
+
   return { ok: true, reason: "Recording started via Meet's in-call menu." };
 }
 
