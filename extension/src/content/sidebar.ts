@@ -10,6 +10,8 @@ export interface SidebarCallbacks {
   onToggleRecording: (enabled: boolean) => void;
 }
 
+export type TabRecordingState = "idle" | "recording";
+
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtPct = (n: number) => Math.round(n * 100) + "%";
 
@@ -57,6 +59,15 @@ export class Sidebar {
   // config loads, so a generated JD can link out to the full dashboard
   // view instead of only the cramped inline sidebar preview.
   private dashboardBaseUrl: string | null = null;
+  // Independent of recordingEnabled/renderRecordingControl above (that's
+  // Meet's own native recording, gated by the organizer-only API) -- this
+  // is a READ-ONLY reflection of the tabCapture-based recording's actual
+  // state (see content-script.ts, which polls the background worker for
+  // it). It can't be started/stopped from here: Chrome only grants
+  // tabCapture access right after the user invokes the extension via its
+  // own toolbar icon, not a click on anything we inject into the page --
+  // so that button lives in popup.ts instead.
+  private tabRecordingState: TabRecordingState = "idle";
   // Collapsed by default: a fixed 320px panel permanently covering the
   // right edge of the page is a bad time when a rep is screen-sharing —
   // it overlaps whatever they're presenting, since Meet has no idea our
@@ -131,6 +142,11 @@ export class Sidebar {
   setBusy(busy: boolean, action?: string): void {
     this.busy = busy;
     this.busyAction = busy ? (action ?? null) : null;
+    this.render();
+  }
+
+  setTabRecordingState(state: TabRecordingState): void {
+    this.tabRecordingState = state;
     this.render();
   }
 
@@ -340,11 +356,25 @@ export class Sidebar {
     `;
   }
 
+  // Independent of renderRecordingControl above -- this is the
+  // tabCapture-based recording, which (unlike Meet's native recording via
+  // the organizer-only API) works no matter who organized the call.
+  // Read-only here: it's started/stopped from the extension's popup (see
+  // popup.ts for why), so this just reflects whatever's actually
+  // happening and points the rep there.
+  private renderTabRecordingControl(): string {
+    if (this.tabRecordingState === "recording") {
+      return `<span style="color:${colors.redAccent}">● Recording this tab</span> <span class="muted">— stop it from the toolbar icon</span>`;
+    }
+    return `<span class="muted">Not recording this tab — click the Deal Assistant icon in your toolbar to start</span>`;
+  }
+
   private renderSession(s: CallSession): string {
     return `
       <div class="card">
         <span class="badge" style="background:${colors.orange}22;color:${colors.orange};border:1px solid ${colors.orange}">${escapeHtml(s.status)}</span>
         <div style="margin-top:0.5rem">${this.renderRecordingControl(s)}</div>
+        <div style="margin-top:0.5rem">${this.renderTabRecordingControl()}</div>
       </div>
       ${this.renderCallStructure(s)}
       ${this.renderRoles(s)}
