@@ -80,6 +80,25 @@ function dismissFeatureNudges(): void {
       el.click();
     }
   }
+
+  // Real-call testing found the nudge can still be showing only its
+  // icon-only "x" close button at the point we check (the "Don't show
+  // again"/"Learn more" row above wasn't enough alone) -- aria-label*=close
+  // is too generic to click unscoped (Meet has other close buttons, e.g.
+  // for chat/side panels), so only click one whose nearby ancestor's text
+  // confirms it's actually this kind of nudge card, not unrelated UI.
+  for (const closeBtn of Array.from(
+    document.querySelectorAll<HTMLElement>('button[aria-label*="close" i], button[aria-label*="dismiss" i]')
+  )) {
+    let ancestor: HTMLElement | null = closeBtn.parentElement;
+    for (let i = 0; i < 6 && ancestor; i++) {
+      if ((ancestor.textContent ?? "").toLowerCase().includes("is available")) {
+        closeBtn.click();
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+  }
 }
 
 async function waitFor<T>(fn: () => T | null, timeoutMs: number, intervalMs = 150): Promise<T | null> {
@@ -176,6 +195,15 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     recordMenuItem =
       document.querySelector<HTMLElement>('[aria-label="Recording"], [aria-label*="Recording" i]') ??
       (menuItems ? findByText(menuItems, "recording", MENU_ITEM_MAX_LENGTH) : null);
+
+    if (!recordMenuItem && menuItems) {
+      // No length cap here -- this is diagnostic only (never clicked), so
+      // it's fine to see the near-misses this attempt's cap rejected too.
+      const nearMisses = menuItems
+        .map((el) => (el.textContent ?? "").trim())
+        .filter((text) => text.toLowerCase().includes("record") && text.length > 0);
+      console.log(`[DealAssistant] attempt ${attempt}: no exact recordMenuItem match; near-misses containing "record":`, nearMisses);
+    }
 
     if (!recordMenuItem) {
       document.body.click(); // close whatever menu (if any) is left open before retrying
