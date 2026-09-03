@@ -47,18 +47,39 @@ export interface RecordingUiResult {
  * silently no-op given Meet's own jsaction event-delegation framework,
  * which dispatches based on the real click target.
  */
-function findByText(elements: Element[], needle: string): HTMLElement | null {
+function findByText(elements: Element[], needle: string, maxLength = Infinity): HTMLElement | null {
   const lower = needle.toLowerCase();
   let best: HTMLElement | null = null;
   let bestLength = Infinity;
   for (const el of elements) {
     const text = (el.textContent ?? "").trim().toLowerCase();
-    if (text.includes(lower) && text.length < bestLength) {
+    if (text.includes(lower) && text.length <= maxLength && text.length < bestLength) {
       best = el as HTMLElement;
       bestLength = text.length;
     }
   }
   return best;
+}
+
+/**
+ * Real-call testing found Google's own "New feature: X is available"
+ * onboarding nudges (e.g. "Gemini is available...") can appear right
+ * around when the in-call menu is opened, and their description text can
+ * itself contain words like "recording" ("It won't create a recording
+ * or store caption data...") -- which without this guard gets mistaken by
+ * findByText's substring search for the actual "Recording" menu item once
+ * the real menu has closed. Dismissing any such nudge before attempting
+ * the recording click sequence removes both the false-match risk and
+ * whatever is causing the real menu to close early in the first place.
+ */
+function dismissFeatureNudges(): void {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>("button, div[role='button']"));
+  for (const el of candidates) {
+    const text = (el.textContent ?? "").trim().toLowerCase();
+    if (text === "don't show again" || text === "got it" || text === "dismiss") {
+      el.click();
+    }
+  }
 }
 
 async function waitFor<T>(fn: () => T | null, timeoutMs: number, intervalMs = 150): Promise<T | null> {
@@ -97,45 +118,77 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     return { ok: false, reason: "Couldn't find Meet's \"More options\" button -- Meet's UI may have changed." };
   }
   console.log("[DealAssistant] moreOptionsBtn:", moreOptionsBtn.outerHTML.slice(0, 300));
-  moreOptionsBtn.click();
 
-  // Meet's own menu items are plain divs driven by its internal
-  // jscontroller/jsaction framework, not standard ARIA role="menuitem"
-  // elements -- matching broadly on clickable-looking containers and
-  // filtering by visible text (below) is more robust here than assuming
-  // semantic roles that may not be present.
-  const menuItems = await waitFor(
-    () => {
-      const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="button"], li, span, div'));
-      return items.length > 0 ? items : null;
-    },
-    3000
-  );
-  console.log("[DealAssistant] menuItems found:", menuItems?.length ?? 0);
+  // maxLength=40 keeps the text searches below from ever matching a long,
+  // unrelated block of copy (e.g. a Google onboarding nudge's description)
+  // just because it happens to contain the phrase somewhere in a sentence
+  // -- real-call testing found exactly that: a "Gemini is available..."
+  // popup's description text ("It won't create a recording...") got
+  // matched as the "Recording" menu item once the real menu had already
+  // closed. This guard alone surfaces a clear "not found" instead of
+  // clicking the wrong thing; combined with the retry loop below (which
+  // also dismisses the nudge and reopens the menu), the real item should
+  // now get found in almost all cases where recording is actually available.
+  const MENU_ITEM_MAX_LENGTH = 40;
 
-  // This function is called unconditionally once the rep joins, even when
-  // the pre-join API call reported success -- that report isn't
-  // trustworthy proof recording actually started (see content-script.ts).
-  // Not confirmed yet whether an active recording changes this menu
-  // entry's label (e.g. to "Stop recording") or leaves it as "Recording"
-  // and only changes what's inside the panel it opens -- checked
-  // defensively; harmless if it never matches.
-  if (menuItems && findByText(menuItems, "stop recording")) {
+  // A Google onboarding nudge (e.g. "Gemini is available...") appearing
+  // around the same time our menu opens can steal focus and close it
+  // before we get to search -- retrying the open (after clearing the
+  // nudge out of the way) covers that race instead of failing outright
+  // on the first closed-menu attempt.
+  let recordMenuItem: HTMLElement | null = null;
+  let alreadyRecording = false;
+  for (let attempt = 0; attempt < 2 && !recordMenuItem && !alreadyRecording; attempt++) {
+    dismissFeatureNudges();
+    moreOptionsBtn.click();
+
+    // Meet's own menu items are plain divs driven by its internal
+    // jscontroller/jsaction framework, not standard ARIA role="menuitem"
+    // elements -- matching broadly on clickable-looking containers and
+    // filtering by visible text (below) is more robust here than assuming
+    // semantic roles that may not be present.
+    const menuItems = await waitFor(
+      () => {
+        dismissFeatureNudges(); // in case a nudge mounted after the menu opened and is about to close it
+        const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="button"], li, span, div'));
+        return items.length > 0 ? items : null;
+      },
+      3000
+    );
+    console.log(`[DealAssistant] attempt ${attempt}: menuItems found:`, menuItems?.length ?? 0);
+
+    // This function is called unconditionally once the rep joins, even when
+    // the pre-join API call reported success -- that report isn't
+    // trustworthy proof recording actually started (see content-script.ts).
+    // Not confirmed yet whether an active recording changes this menu
+    // entry's label (e.g. to "Stop recording") or leaves it as "Recording"
+    // and only changes what's inside the panel it opens -- checked
+    // defensively; harmless if it never matches.
+    if (menuItems && findByText(menuItems, "stop recording", MENU_ITEM_MAX_LENGTH)) {
+      alreadyRecording = true;
+      break;
+    }
+
+    // Not directly confirmed whether this specific row also carries an
+    // aria-label the way the "Start recording" button does (see below), but
+    // it's a consistent enough Google pattern to try first regardless,
+    // falling back to the text search either way.
+    recordMenuItem =
+      document.querySelector<HTMLElement>('[aria-label="Recording"], [aria-label*="Recording" i]') ??
+      (menuItems ? findByText(menuItems, "recording", MENU_ITEM_MAX_LENGTH) : null);
+
+    if (!recordMenuItem) {
+      document.body.click(); // close whatever menu (if any) is left open before retrying
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  if (alreadyRecording) {
     document.body.click();
     return { ok: true, reason: "Recording is already active." };
   }
 
-  // Not directly confirmed whether this specific row also carries an
-  // aria-label the way the "Start recording" button does (see below), but
-  // it's a consistent enough Google pattern to try first regardless,
-  // falling back to the text search either way.
-  const recordMenuItem =
-    document.querySelector<HTMLElement>('[aria-label="Recording"], [aria-label*="Recording" i]') ??
-    (menuItems ? findByText(menuItems, "recording") : null);
   if (!recordMenuItem) {
-    // Close whatever menu we opened rather than leaving Meet's UI in a
-    // half-open state the rep didn't ask for.
-    document.body.click();
     return {
       ok: false,
       reason:
