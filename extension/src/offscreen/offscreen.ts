@@ -46,17 +46,34 @@ async function startCapture(streamId: string): Promise<void> {
   } as unknown as MediaStreamConstraints;
 
   captureStream = await navigator.mediaDevices.getUserMedia(constraints);
+  console.log(
+    "[DealAssistant] got captureStream, tracks:",
+    captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
+  );
 
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(captureStream, { mimeType: "video/webm;codecs=vp9,opus" });
+  console.log("[DealAssistant] MediaRecorder created, state:", mediaRecorder.state, "mimeType:", mediaRecorder.mimeType);
+
   mediaRecorder.ondataavailable = (e) => {
+    console.log("[DealAssistant] ondataavailable, chunk size:", e.data.size, "total chunks so far:", recordedChunks.length + 1);
     if (e.data.size > 0) recordedChunks.push(e.data);
   };
+  mediaRecorder.onerror = (e) => {
+    console.log("[DealAssistant] MediaRecorder error:", e);
+  };
   mediaRecorder.onstop = () => {
+    console.log("[DealAssistant] onstop fired, total chunks:", recordedChunks.length, "total bytes:", recordedChunks.reduce((sum, c) => sum + c.size, 0));
     const blob = new Blob(recordedChunks, { type: "video/webm" });
     const url = URL.createObjectURL(blob);
     const filename = `deal-assistant-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-    chrome.downloads.download({ url, filename, saveAs: false }, () => {
+    console.log("[DealAssistant] starting download:", filename, "blob size:", blob.size);
+    chrome.downloads.download({ url, filename, saveAs: false }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.log("[DealAssistant] downloads.download failed:", chrome.runtime.lastError.message);
+      } else {
+        console.log("[DealAssistant] downloads.download succeeded, downloadId:", downloadId);
+      }
       // Revoking immediately risks racing the download actually starting --
       // Phase 1 only; Phase 2 uploads the blob directly instead of ever
       // creating a local download, so this workaround goes away then.
@@ -70,8 +87,10 @@ async function startCapture(streamId: string): Promise<void> {
   // only at the very end, both so a crash mid-call doesn't lose everything
   // and to set up for Phase 2's incremental/chunked upload.
   mediaRecorder.start(1000);
+  console.log("[DealAssistant] mediaRecorder.start() called, state:", mediaRecorder.state);
 }
 
 function stopCapture(): void {
+  console.log("[DealAssistant] stopCapture called, mediaRecorder state:", mediaRecorder?.state ?? "null");
   mediaRecorder?.stop();
 }
