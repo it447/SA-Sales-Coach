@@ -96,6 +96,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   if (!moreOptionsBtn) {
     return { ok: false, reason: "Couldn't find Meet's \"More options\" button -- Meet's UI may have changed." };
   }
+  console.log("[DealAssistant] moreOptionsBtn:", moreOptionsBtn.outerHTML.slice(0, 300));
   moreOptionsBtn.click();
 
   // Meet's own menu items are plain divs driven by its internal
@@ -110,6 +111,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     },
     3000
   );
+  console.log("[DealAssistant] menuItems found:", menuItems?.length ?? 0);
 
   // This function is called unconditionally once the rep joins, even when
   // the pre-join API call reported success -- that report isn't
@@ -140,7 +142,9 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
         '"Recording" isn\'t available in the More-options menu -- your organization\'s meeting host settings likely restrict recording to the meeting organizer only.',
     };
   }
+  console.log("[DealAssistant] recordMenuItem:", recordMenuItem.outerHTML.slice(0, 300));
   recordMenuItem.click();
+  console.log("[DealAssistant] clicked recordMenuItem, waiting for confirm button...");
 
   // Clicking "Recording" opens a full side panel ("Record your video
   // call...", confirmed by direct inspection) with a "Start recording"
@@ -163,11 +167,18 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     8000
   );
   if (!confirmBtn) {
+    console.log(
+      "[DealAssistant] no confirm button found; buttons on page now:",
+      Array.from(document.querySelectorAll("button"))
+        .map((b) => b.getAttribute("aria-label"))
+        .filter(Boolean)
+    );
     return {
       ok: false,
       reason: 'Clicked "Recording" but no "Start recording" confirmation appeared -- Meet\'s UI may have changed.',
     };
   }
+  console.log("[DealAssistant] confirmBtn found:", confirmBtn.outerHTML.slice(0, 300));
   confirmBtn.click();
 
   return { ok: true, reason: "Recording started via Meet's in-call menu." };
