@@ -38,6 +38,38 @@ export interface RecordingUiResult {
 }
 
 /**
+ * Real-call testing found a plain el.click() on Meet's "More options"
+ * button doesn't reliably open the dropdown -- it sometimes silently does
+ * nothing (confirmed via console logging: the same session that
+ * successfully opened the menu and got all the way to the confirmation
+ * dialogs on one attempt found ZERO real menu items on a later attempt,
+ * same organizer, same call type). Meet's jsaction framework binds
+ * separate handlers for pointerdown/pointerup/click, and a synthetic
+ * .click() alone appears not to always satisfy whatever it uses to
+ * recognize a real user gesture. Dispatching the fuller pointer/mouse
+ * event sequence a real click actually produces is more reliable.
+ */
+function realClick(el: HTMLElement): void {
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const eventInit: MouseEventInit & PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX: x,
+    clientY: y,
+    view: window,
+  };
+  el.dispatchEvent(new PointerEvent("pointerdown", { ...eventInit, pointerId: 1, isPrimary: true }));
+  el.dispatchEvent(new MouseEvent("mousedown", eventInit));
+  el.dispatchEvent(new PointerEvent("pointerup", { ...eventInit, pointerId: 1, isPrimary: true }));
+  el.dispatchEvent(new MouseEvent("mouseup", eventInit));
+  el.dispatchEvent(new MouseEvent("click", eventInit));
+  el.click(); // belt-and-suspenders in case the framework specifically wants a "real" click() call
+}
+
+/**
  * Finds the element whose text most tightly matches needle -- the
  * SHORTEST matching textContent, not just the first one found. Meet's
  * menu rows are plain, deeply-nested divs (no semantic role="menuitem"),
@@ -77,7 +109,7 @@ function dismissFeatureNudges(): void {
   for (const el of candidates) {
     const text = (el.textContent ?? "").trim().toLowerCase();
     if (text === "don't show again" || text === "got it" || text === "dismiss") {
-      el.click();
+      realClick(el);
     }
   }
 
@@ -93,7 +125,7 @@ function dismissFeatureNudges(): void {
     let ancestor: HTMLElement | null = closeBtn.parentElement;
     for (let i = 0; i < 6 && ancestor; i++) {
       if ((ancestor.textContent ?? "").toLowerCase().includes("is available")) {
-        closeBtn.click();
+        realClick(closeBtn);
         break;
       }
       ancestor = ancestor.parentElement;
@@ -159,7 +191,12 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   let alreadyRecording = false;
   for (let attempt = 0; attempt < 2 && !recordMenuItem && !alreadyRecording; attempt++) {
     dismissFeatureNudges();
-    moreOptionsBtn.click();
+    realClick(moreOptionsBtn);
+    // aria-expanded is the one direct signal Meet's own button gives us
+    // that the dropdown actually opened, as opposed to inferring it
+    // indirectly from whether we later find a "Recording" row -- logging
+    // it tells us definitively whether the click itself is the problem.
+    console.log(`[DealAssistant] attempt ${attempt}: moreOptionsBtn aria-expanded after click:`, moreOptionsBtn.getAttribute("aria-expanded"));
 
     // Meet's own menu items are plain divs driven by its internal
     // jscontroller/jsaction framework, not standard ARIA role="menuitem"
@@ -224,7 +261,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     };
   }
   console.log("[DealAssistant] recordMenuItem:", recordMenuItem.outerHTML.slice(0, 300));
-  recordMenuItem.click();
+  realClick(recordMenuItem);
   console.log("[DealAssistant] clicked recordMenuItem, waiting for confirm button...");
 
   // Clicking "Recording" opens a full side panel ("Record your video
@@ -260,7 +297,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
     };
   }
   console.log("[DealAssistant] confirmBtn found:", confirmBtn.outerHTML.slice(0, 300));
-  confirmBtn.click();
+  realClick(confirmBtn);
 
   // Real-call testing found clicking "Start recording" doesn't actually
   // start anything by itself -- it opens a SECOND consent dialog ("Make
@@ -279,7 +316,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   );
   if (secondConfirmBtn) {
     console.log("[DealAssistant] secondConfirmBtn (consent dialog) found, clicking:", secondConfirmBtn.outerHTML.slice(0, 300));
-    secondConfirmBtn.click();
+    realClick(secondConfirmBtn);
   } else {
     // Not necessarily a failure -- this consent dialog may not always
     // appear (e.g. depending on org policy or meeting type), so recording
