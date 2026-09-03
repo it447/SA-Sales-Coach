@@ -59,3 +59,24 @@ export function normalizeMeetLink(href: string): string {
   const url = new URL(href);
   return `${url.origin}${url.pathname}`;
 }
+
+// chrome.storage.session (not .local): this should never survive a full
+// browser restart -- a stale "still recording" flag left over from a
+// crash would be actively misleading, unlike the config/session-id state
+// above which is meant to persist. Still survives the background service
+// worker itself being evicted/restarted mid-call, which a plain in-memory
+// variable there would not.
+const RECORDING_TAB_KEY = "dealAssistantRecordingTabId";
+
+export async function getRecordingTabId(): Promise<number | null> {
+  const result = await chrome.storage.session.get(RECORDING_TAB_KEY);
+  return result[RECORDING_TAB_KEY] ?? null;
+}
+
+export async function setRecordingTabId(tabId: number | null): Promise<void> {
+  if (tabId === null) {
+    await chrome.storage.session.remove(RECORDING_TAB_KEY);
+  } else {
+    await chrome.storage.session.set({ [RECORDING_TAB_KEY]: tabId });
+  }
+}

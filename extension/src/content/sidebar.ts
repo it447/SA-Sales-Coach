@@ -8,11 +8,9 @@ export interface SidebarCallbacks {
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
   onToggleRecording: (enabled: boolean) => void;
-  onStartTabRecording: () => void;
-  onStopTabRecording: () => void;
 }
 
-export type TabRecordingState = "idle" | "starting" | "recording" | "stopping";
+export type TabRecordingState = "idle" | "recording";
 
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtPct = (n: number) => Math.round(n * 100) + "%";
@@ -63,11 +61,13 @@ export class Sidebar {
   private dashboardBaseUrl: string | null = null;
   // Independent of recordingEnabled/renderRecordingControl above (that's
   // Meet's own native recording, gated by the organizer-only API) -- this
-  // tracks the tabCapture-based recording, which works regardless of who
-  // organized the call. See content-script.ts and background/service-
-  // worker.ts for the actual capture pipeline this drives.
+  // is a READ-ONLY reflection of the tabCapture-based recording's actual
+  // state (see content-script.ts, which polls the background worker for
+  // it). It can't be started/stopped from here: Chrome only grants
+  // tabCapture access right after the user invokes the extension via its
+  // own toolbar icon, not a click on anything we inject into the page --
+  // so that button lives in popup.ts instead.
   private tabRecordingState: TabRecordingState = "idle";
-  private tabRecordingError: string | null = null;
   // Collapsed by default: a fixed 320px panel permanently covering the
   // right edge of the page is a bad time when a rep is screen-sharing —
   // it overlaps whatever they're presenting, since Meet has no idea our
@@ -145,9 +145,8 @@ export class Sidebar {
     this.render();
   }
 
-  setTabRecordingState(state: TabRecordingState, error: string | null = null): void {
+  setTabRecordingState(state: TabRecordingState): void {
     this.tabRecordingState = state;
-    this.tabRecordingError = error;
     this.render();
   }
 
@@ -192,10 +191,6 @@ export class Sidebar {
       this.callbacks.onResolveFlag(index);
     } else if (action === "toggle-recording") {
       this.callbacks.onToggleRecording(target.dataset.enabled === "true");
-    } else if (action === "start-tab-recording") {
-      this.callbacks.onStartTabRecording();
-    } else if (action === "stop-tab-recording") {
-      this.callbacks.onStopTabRecording();
     } else if (action === "edit-role") {
       this.editingRoleId = target.dataset.roleId ?? null;
       this.render();
@@ -363,28 +358,15 @@ export class Sidebar {
 
   // Independent of renderRecordingControl above -- this is the
   // tabCapture-based recording, which (unlike Meet's native recording via
-  // the organizer-only API) works no matter who organized the call, at
-  // the cost of needing this one manual click each call (Chrome requires
-  // a real user gesture before letting an extension capture a tab's
-  // audio/video, so this can never be made fully automatic).
+  // the organizer-only API) works no matter who organized the call.
+  // Read-only here: it's started/stopped from the extension's popup (see
+  // popup.ts for why), so this just reflects whatever's actually
+  // happening and points the rep there.
   private renderTabRecordingControl(): string {
-    const errorHtml = this.tabRecordingError
-      ? `<div style="color:${colors.redAccent};font-size:11px;margin-top:0.3rem">${escapeHtml(this.tabRecordingError)}</div>`
-      : "";
     if (this.tabRecordingState === "recording") {
-      return `
-        <span style="color:${colors.redAccent}">● Recording this tab</span>
-        <button class="secondary" data-action="stop-tab-recording" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Stop</button>
-        ${errorHtml}
-      `;
+      return `<span style="color:${colors.redAccent}">● Recording this tab</span> <span class="muted">— stop it from the toolbar icon</span>`;
     }
-    if (this.tabRecordingState === "starting" || this.tabRecordingState === "stopping") {
-      return `<span class="muted">${this.tabRecordingState === "starting" ? "Starting…" : "Saving…"}</span>${errorHtml}`;
-    }
-    return `
-      <button data-action="start-tab-recording" style="padding:0.15rem 0.5rem">Start recording (this device)</button>
-      ${errorHtml}
-    `;
+    return `<span class="muted">Not recording this tab — click the Deal Assistant icon in your toolbar to start</span>`;
   }
 
   private renderSession(s: CallSession): string {

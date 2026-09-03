@@ -5,7 +5,7 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import { startNativeRecordingViaUi, enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
-import type { StartTabRecordingRequest, StopTabRecordingRequest, TabRecordingResponse } from "../lib/messages";
+import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse } from "../lib/messages";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
 // finishes scoping a role, at the cost of proportionally more Claude API
@@ -62,25 +62,21 @@ const sidebar = new Sidebar({
     }),
   onToggleRecording: (enabled) =>
     withSession((config, sessionId) => api.setRecording(config, sessionId, enabled).then(applySession).catch(showError)),
-  onStartTabRecording: () => {
-    sidebar.setTabRecordingState("starting");
-    const request: StartTabRecordingRequest = { type: "DEAL_ASSISTANT_START_TAB_RECORDING" };
-    chrome.runtime.sendMessage(request).then((response: TabRecordingResponse) => {
-      if (response?.success) {
-        sidebar.setTabRecordingState("recording");
-      } else {
-        sidebar.setTabRecordingState("idle", response?.error ?? "Couldn't start recording.");
-      }
-    });
-  },
-  onStopTabRecording: () => {
-    sidebar.setTabRecordingState("stopping");
-    const request: StopTabRecordingRequest = { type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" };
-    chrome.runtime.sendMessage(request).then((response: TabRecordingResponse) => {
-      sidebar.setTabRecordingState("idle", response?.success ? null : response?.error ?? "Couldn't stop recording cleanly.");
-    });
-  },
 });
+
+/**
+ * The tabCapture recording itself can only be started/stopped from the
+ * popup (see popup.ts/service-worker.ts for why) -- this just polls the
+ * background worker for whether IT actually started one for this tab, so
+ * the sidebar can show accurate status without being able to control it
+ * directly. Runs on the same cadence as the session poll loop; cheap
+ * (chrome.storage.session read), so no reason for its own timer.
+ */
+async function pollTabRecordingState(): Promise<void> {
+  const request: GetTabRecordingStateRequest = { type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE" };
+  const response: GetTabRecordingStateResponse = await chrome.runtime.sendMessage(request);
+  sidebar.setTabRecordingState(response?.isThisTabRecording ? "recording" : "idle");
+}
 
 function applySession(session: Awaited<ReturnType<typeof api.getSession>>): void {
   sidebar.update(session);
@@ -107,6 +103,7 @@ async function pollLoop(): Promise<void> {
       showError(err);
     }
   });
+  await pollTabRecordingState();
   setTimeout(pollLoop, POLL_MS);
 }
 
