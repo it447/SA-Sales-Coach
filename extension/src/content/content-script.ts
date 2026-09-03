@@ -3,7 +3,7 @@ import * as api from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
-import { startNativeRecordingViaUi, watchForCallJoin } from "./nativeRecording";
+import { startNativeRecordingViaUi, enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
@@ -187,22 +187,39 @@ function watchForConfigAndSession(): void {
     pollLoop();
     flushTranscriptLoop();
 
-    if (recordingWantedForThisCall) {
-      recordingWantedForThisCall = false;
-      watchForCallJoin(() => {
-        // A short delay lets Meet's own post-join UI (toolbar, side panels)
-        // finish settling before we go looking for "More options" --
-        // clicking too early risks the button not existing yet.
-        setTimeout(async () => {
-          const result = await startNativeRecordingViaUi();
-          if (result.ok) {
-            sidebar.setError(null);
-          } else {
-            sidebar.setError(`Couldn't enable recording automatically: ${result.reason}`);
-          }
-        }, 2000);
-      });
-    }
+    // Always try to turn on Meet's own captions once the rep joins --
+    // captions.ts's scraper needs them and otherwise relies on the rep
+    // remembering to click "CC" themselves every call. Additionally
+    // attempt the recording-menu click sequence, but only when this call
+    // is one the rep wanted recorded (captured before this closure runs,
+    // since recordingWantedForThisCall gets reset immediately after).
+    const shouldAttemptRecording = recordingWantedForThisCall;
+    recordingWantedForThisCall = false;
+    watchForCallJoin(() => {
+      // A short delay lets Meet's own post-join UI (toolbar, side panels)
+      // finish settling before we go looking for buttons -- clicking too
+      // early risks them not existing yet.
+      setTimeout(async () => {
+        const captionsResult = await enableCaptionsViaUi();
+        if (!captionsResult.ok) {
+          console.log(`[DealAssistant] couldn't auto-enable captions: ${captionsResult.reason}`);
+        }
+
+        if (!shouldAttemptRecording) return;
+        const result = await startNativeRecordingViaUi();
+        if (result.ok) {
+          // ok here means Meet's own recording panel is now open, not
+          // that recording has actually started -- the rep still needs
+          // to click Meet's own "Start recording" button themselves
+          // (see nativeRecording.ts for why this stops short of doing
+          // that last click automatically).
+          sidebar.setError(null);
+          sidebar.setBanner(`${result.reason} It's open in Meet's toolbar now.`);
+        } else {
+          sidebar.setError(`Couldn't enable recording automatically: ${result.reason}`);
+        }
+      }, 2000);
+    });
   };
   check();
 }

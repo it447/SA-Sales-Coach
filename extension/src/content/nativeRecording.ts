@@ -12,14 +12,19 @@
  *    no error surfaced at all -- so even a clean API response isn't
  *    trustworthy proof recording will really happen.
  *
- * This instead automates the exact same click sequence a human would use:
- * open the in-call "More options" menu, click "Record meeting", confirm
- * the dialog. Meet's own UI has historically let any internal participant
- * start a recording (subject to the org's meeting host management
- * settings), which the REST API cannot do regardless of settings. Safe to
- * call even when the API already succeeded: if recording is genuinely
- * already running, the menu shows "Stop recording" instead, which this
- * detects and treats as success rather than double-triggering anything.
+ * This instead automates opening Meet's own in-call "More options" menu
+ * and clicking "Recording", which surfaces Meet's native recording panel
+ * (with its own "Start recording" button) in front of the rep -- who is
+ * on the call and can take that last click themselves. Deliberately
+ * doesn't try to also click "Start recording" or the further consent
+ * dialog behind it: those are two more fragile, reverse-engineered
+ * selectors for very little gain, since the rep is right there anyway.
+ * Meet's own UI has historically let any internal participant start a
+ * recording (subject to the org's meeting host management settings),
+ * which the REST API cannot do regardless of settings. Safe to call even
+ * when the API already succeeded: if recording is genuinely already
+ * running, the menu shows "Stop recording" instead, which this detects
+ * and treats as success rather than double-triggering anything.
  *
  * CAVEAT (same class as captions.ts): there is no public API for this UI,
  * so the selectors below are best-effort based on Meet's aria-label/role
@@ -262,69 +267,50 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   }
   console.log("[DealAssistant] recordMenuItem:", recordMenuItem.outerHTML.slice(0, 300));
   realClick(recordMenuItem);
-  console.log("[DealAssistant] clicked recordMenuItem, waiting for confirm button...");
 
-  // Clicking "Recording" opens a full side panel ("Record your video
-  // call...", confirmed by direct inspection) with a "Start recording"
-  // button, not a small popup. Confirmed by direct inspection: the button
-  // itself carries aria-label="Start recording" (its visible label text
-  // lives in a separate aria-hidden span, standard Google pattern) -- an
-  // exact aria-label match is far more reliable than hunting through
-  // nested spans by text, so that's tried first with the text search only
-  // as a fallback in case a future UI change drops the aria-label.
-  // Real-call testing found the panel (illustration + checkboxes) can
-  // take longer to fully render than the earlier, simpler menu did --
-  // given more time than the other waits in this file.
-  const confirmBtn = await waitFor(
-    () =>
-      document.querySelector<HTMLElement>('button[aria-label="Start recording"], button[aria-label*="Start recording" i]') ??
-      findByText(
-        Array.from(document.querySelectorAll('[role="dialog"] button, [role="dialog"] div, [role="dialog"] span, button')),
-        "start recording"
-      ),
-    8000
-  );
-  if (!confirmBtn) {
-    console.log(
-      "[DealAssistant] no confirm button found; buttons on page now:",
-      Array.from(document.querySelectorAll("button"))
-        .map((b) => b.getAttribute("aria-label"))
-        .filter(Boolean)
-    );
-    return {
-      ok: false,
-      reason: 'Clicked "Recording" but no "Start recording" confirmation appeared -- Meet\'s UI may have changed.',
-    };
-  }
-  console.log("[DealAssistant] confirmBtn found:", confirmBtn.outerHTML.slice(0, 300));
-  realClick(confirmBtn);
+  // Deliberately stops here rather than also clicking through Meet's own
+  // "Start recording" button and the further "Make sure everyone is
+  // ready" consent dialog behind it. Clicking "Recording" already opens
+  // that panel, putting Meet's own native "Start recording" button in
+  // front of the rep -- and since the rep is right there on the call,
+  // having them take that last click themselves is both far more
+  // reliable (two fewer fragile, reverse-engineered selectors to chase)
+  // and keeps the actual "start recording" action as a real, undisputed
+  // user gesture rather than a synthetic one Google's own UI might
+  // someday start rejecting.
+  return { ok: true, reason: "Opened Meet's recording panel -- click \"Start recording\" to begin." };
+}
 
-  // Real-call testing found clicking "Start recording" doesn't actually
-  // start anything by itself -- it opens a SECOND consent dialog ("Make
-  // sure everyone is ready", warning that recording without consent may
-  // be illegal) with its own "Start"/"Cancel" buttons, and recording only
-  // truly begins once "Start" there is clicked too. Matching on exact
-  // trimmed text "start" (not a substring match) is safe here: no other
-  // button on the page has that as its *entire* label, unlike "Start
-  // recording" which does substring-overlap with this if not exact.
-  const secondConfirmBtn = await waitFor(
-    () =>
-      Array.from(document.querySelectorAll<HTMLElement>("button")).find(
-        (b) => (b.textContent ?? "").trim().toLowerCase() === "start"
-      ) ?? null,
-    5000
+/**
+ * Turns on Meet's own live captions (the toolbar "CC" button) so
+ * captions.ts's scraper has something to read without the rep needing to
+ * remember to click it every call -- captions.ts already warns when none
+ * are detected, but this removes the manual step causing that in the
+ * first place. Much simpler and more stable a target than the recording
+ * menu above: it's a single, well-known toolbar button (not several
+ * layers into a submenu), and Google's own aria-label convention for it
+ * ("Turn on captions" / "Turn off captions", toggling with state) has
+ * been stable for years -- still unconfirmed by direct inspection the
+ * way the recording selectors eventually were, so this is the first
+ * place to check if it doesn't work on a real call.
+ */
+export async function enableCaptionsViaUi(): Promise<RecordingUiResult> {
+  const alreadyOnBtn = document.querySelector<HTMLElement>(
+    'button[aria-label="Turn off captions"], button[aria-label*="Turn off captions" i]'
   );
-  if (secondConfirmBtn) {
-    console.log("[DealAssistant] secondConfirmBtn (consent dialog) found, clicking:", secondConfirmBtn.outerHTML.slice(0, 300));
-    realClick(secondConfirmBtn);
-  } else {
-    // Not necessarily a failure -- this consent dialog may not always
-    // appear (e.g. depending on org policy or meeting type), so recording
-    // may already be running from the first click.
-    console.log("[DealAssistant] no second consent dialog appeared -- assuming recording already started.");
+  if (alreadyOnBtn) {
+    return { ok: true, reason: "Captions are already on." };
   }
 
-  return { ok: true, reason: "Recording started via Meet's in-call menu." };
+  const ccBtn = document.querySelector<HTMLElement>(
+    'button[aria-label="Turn on captions"], button[aria-label*="Turn on captions" i]'
+  );
+  if (!ccBtn) {
+    return { ok: false, reason: "Couldn't find Meet's captions (CC) button -- Meet's UI may have changed." };
+  }
+  console.log("[DealAssistant] captions toggle button:", ccBtn.outerHTML.slice(0, 300));
+  realClick(ccBtn);
+  return { ok: true, reason: "Turned on Meet's live captions." };
 }
 
 /**
