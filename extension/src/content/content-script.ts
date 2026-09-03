@@ -5,6 +5,7 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import { startNativeRecordingViaUi, enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
+import type { StartTabRecordingRequest, StopTabRecordingRequest, TabRecordingResponse } from "../lib/messages";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
 // finishes scoping a role, at the cost of proportionally more Claude API
@@ -61,6 +62,24 @@ const sidebar = new Sidebar({
     }),
   onToggleRecording: (enabled) =>
     withSession((config, sessionId) => api.setRecording(config, sessionId, enabled).then(applySession).catch(showError)),
+  onStartTabRecording: () => {
+    sidebar.setTabRecordingState("starting");
+    const request: StartTabRecordingRequest = { type: "DEAL_ASSISTANT_START_TAB_RECORDING" };
+    chrome.runtime.sendMessage(request).then((response: TabRecordingResponse) => {
+      if (response?.success) {
+        sidebar.setTabRecordingState("recording");
+      } else {
+        sidebar.setTabRecordingState("idle", response?.error ?? "Couldn't start recording.");
+      }
+    });
+  },
+  onStopTabRecording: () => {
+    sidebar.setTabRecordingState("stopping");
+    const request: StopTabRecordingRequest = { type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" };
+    chrome.runtime.sendMessage(request).then((response: TabRecordingResponse) => {
+      sidebar.setTabRecordingState("idle", response?.success ? null : response?.error ?? "Couldn't stop recording cleanly.");
+    });
+  },
 });
 
 function applySession(session: Awaited<ReturnType<typeof api.getSession>>): void {

@@ -8,7 +8,11 @@ export interface SidebarCallbacks {
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
   onToggleRecording: (enabled: boolean) => void;
+  onStartTabRecording: () => void;
+  onStopTabRecording: () => void;
 }
+
+export type TabRecordingState = "idle" | "starting" | "recording" | "stopping";
 
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtPct = (n: number) => Math.round(n * 100) + "%";
@@ -57,6 +61,13 @@ export class Sidebar {
   // config loads, so a generated JD can link out to the full dashboard
   // view instead of only the cramped inline sidebar preview.
   private dashboardBaseUrl: string | null = null;
+  // Independent of recordingEnabled/renderRecordingControl above (that's
+  // Meet's own native recording, gated by the organizer-only API) -- this
+  // tracks the tabCapture-based recording, which works regardless of who
+  // organized the call. See content-script.ts and background/service-
+  // worker.ts for the actual capture pipeline this drives.
+  private tabRecordingState: TabRecordingState = "idle";
+  private tabRecordingError: string | null = null;
   // Collapsed by default: a fixed 320px panel permanently covering the
   // right edge of the page is a bad time when a rep is screen-sharing —
   // it overlaps whatever they're presenting, since Meet has no idea our
@@ -134,6 +145,12 @@ export class Sidebar {
     this.render();
   }
 
+  setTabRecordingState(state: TabRecordingState, error: string | null = null): void {
+    this.tabRecordingState = state;
+    this.tabRecordingError = error;
+    this.render();
+  }
+
   setDashboardBaseUrl(url: string): void {
     this.dashboardBaseUrl = url;
     this.render();
@@ -175,6 +192,10 @@ export class Sidebar {
       this.callbacks.onResolveFlag(index);
     } else if (action === "toggle-recording") {
       this.callbacks.onToggleRecording(target.dataset.enabled === "true");
+    } else if (action === "start-tab-recording") {
+      this.callbacks.onStartTabRecording();
+    } else if (action === "stop-tab-recording") {
+      this.callbacks.onStopTabRecording();
     } else if (action === "edit-role") {
       this.editingRoleId = target.dataset.roleId ?? null;
       this.render();
@@ -340,11 +361,38 @@ export class Sidebar {
     `;
   }
 
+  // Independent of renderRecordingControl above -- this is the
+  // tabCapture-based recording, which (unlike Meet's native recording via
+  // the organizer-only API) works no matter who organized the call, at
+  // the cost of needing this one manual click each call (Chrome requires
+  // a real user gesture before letting an extension capture a tab's
+  // audio/video, so this can never be made fully automatic).
+  private renderTabRecordingControl(): string {
+    const errorHtml = this.tabRecordingError
+      ? `<div style="color:${colors.redAccent};font-size:11px;margin-top:0.3rem">${escapeHtml(this.tabRecordingError)}</div>`
+      : "";
+    if (this.tabRecordingState === "recording") {
+      return `
+        <span style="color:${colors.redAccent}">● Recording this tab</span>
+        <button class="secondary" data-action="stop-tab-recording" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Stop</button>
+        ${errorHtml}
+      `;
+    }
+    if (this.tabRecordingState === "starting" || this.tabRecordingState === "stopping") {
+      return `<span class="muted">${this.tabRecordingState === "starting" ? "Starting…" : "Saving…"}</span>${errorHtml}`;
+    }
+    return `
+      <button data-action="start-tab-recording" style="padding:0.15rem 0.5rem">Start recording (this device)</button>
+      ${errorHtml}
+    `;
+  }
+
   private renderSession(s: CallSession): string {
     return `
       <div class="card">
         <span class="badge" style="background:${colors.orange}22;color:${colors.orange};border:1px solid ${colors.orange}">${escapeHtml(s.status)}</span>
         <div style="margin-top:0.5rem">${this.renderRecordingControl(s)}</div>
+        <div style="margin-top:0.5rem">${this.renderTabRecordingControl()}</div>
       </div>
       ${this.renderCallStructure(s)}
       ${this.renderRoles(s)}

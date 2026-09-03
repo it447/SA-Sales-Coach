@@ -22,3 +22,29 @@ export interface ApiFetchRequest {
 }
 
 export type ApiFetchResponse = { success: true; data: unknown } | { success: false; error: string };
+
+/**
+ * Content-script (sidebar button) -> background service worker: start/stop
+ * capturing the Meet tab's own audio+video via chrome.tabCapture, entirely
+ * independent of Meet's native recording feature (see nativeRecording.ts
+ * for why that path can't work reliably for non-organizers). The actual
+ * capture happens in an offscreen document (service workers have no DOM/
+ * media APIs) -- the background worker's job here is just to mint a
+ * tabCapture stream ID for the sender's tab and relay it there.
+ */
+export interface StartTabRecordingRequest {
+  type: "DEAL_ASSISTANT_START_TAB_RECORDING";
+}
+export interface StopTabRecordingRequest {
+  type: "DEAL_ASSISTANT_STOP_TAB_RECORDING";
+}
+export type TabRecordingResponse = { success: true } | { success: false; error: string };
+
+/** Background service worker -> offscreen document. */
+export interface OffscreenStartRequest {
+  type: "DEAL_ASSISTANT_OFFSCREEN_START";
+  streamId: string;
+}
+export interface OffscreenStopRequest {
+  type: "DEAL_ASSISTANT_OFFSCREEN_STOP";
+}
