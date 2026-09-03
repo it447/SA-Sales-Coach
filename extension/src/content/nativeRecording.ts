@@ -80,9 +80,19 @@ async function waitFor<T>(fn: () => T | null, timeoutMs: number, intervalMs = 15
  * not a small popup dialog.
  */
 export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
-  const moreOptionsBtn = document.querySelector<HTMLElement>(
-    'button[aria-label="More options"], button[aria-label*="More options" i]'
-  );
+  // Real-call testing found Meet has MORE THAN ONE button labeled "More
+  // options" -- each video tile has its own (tile-management options like
+  // "Pin to the screen", nothing about recording), separate from the main
+  // call-controls toolbar's. An unscoped match grabbed a tile's by
+  // accident (whichever happened to be first in the DOM), opening the
+  // wrong menu entirely. The real toolbar sits inside a container marked
+  // aria-label="Call controls" (confirmed by direct inspection) -- scope
+  // to that first, falling back to the first unscoped match only if that
+  // container isn't found at all.
+  const moreOptionsBtn =
+    document.querySelector<HTMLElement>(
+      '[aria-label="Call controls"] button[aria-label="More options"], [aria-label="Call controls"] button[aria-label*="More options" i]'
+    ) ?? document.querySelector<HTMLElement>('button[aria-label="More options"], button[aria-label*="More options" i]');
   if (!moreOptionsBtn) {
     return { ok: false, reason: "Couldn't find Meet's \"More options\" button -- Meet's UI may have changed." };
   }
@@ -140,6 +150,9 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   // exact aria-label match is far more reliable than hunting through
   // nested spans by text, so that's tried first with the text search only
   // as a fallback in case a future UI change drops the aria-label.
+  // Real-call testing found the panel (illustration + checkboxes) can
+  // take longer to fully render than the earlier, simpler menu did --
+  // given more time than the other waits in this file.
   const confirmBtn = await waitFor(
     () =>
       document.querySelector<HTMLElement>('button[aria-label="Start recording"], button[aria-label*="Start recording" i]') ??
@@ -147,7 +160,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
         Array.from(document.querySelectorAll('[role="dialog"] button, [role="dialog"] div, [role="dialog"] span, button')),
         "start recording"
       ),
-    3000
+    8000
   );
   if (!confirmBtn) {
     return {
