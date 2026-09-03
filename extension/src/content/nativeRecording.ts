@@ -140,6 +140,9 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
   // exact aria-label match is far more reliable than hunting through
   // nested spans by text, so that's tried first with the text search only
   // as a fallback in case a future UI change drops the aria-label.
+  // Real-call testing found the panel (illustration + checkboxes) can
+  // take longer to fully render than the earlier, simpler menu did --
+  // given more time than the other waits in this file.
   const confirmBtn = await waitFor(
     () =>
       document.querySelector<HTMLElement>('button[aria-label="Start recording"], button[aria-label*="Start recording" i]') ??
@@ -147,7 +150,7 @@ export async function startNativeRecordingViaUi(): Promise<RecordingUiResult> {
         Array.from(document.querySelectorAll('[role="dialog"] button, [role="dialog"] div, [role="dialog"] span, button')),
         "start recording"
       ),
-    3000
+    8000
   );
   if (!confirmBtn) {
     return {
