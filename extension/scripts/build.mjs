@@ -11,6 +11,7 @@ await build({
     content: "src/content/content-script.ts",
     popup: "src/popup/popup.ts",
     offscreen: "src/offscreen/offscreen.ts",
+    permissions: "src/permissions/permissions.ts",
   },
   outdir: "dist",
   bundle: true,
@@ -21,5 +22,6 @@ await build({
 
 copyFileSync("src/content/content.css", "dist/content.css");
 copyFileSync("src/offscreen/offscreen.html", "dist/offscreen.html");
+copyFileSync("src/permissions/permissions.html", "dist/permissions.html");
 
 console.log("Extension build complete -> dist/");

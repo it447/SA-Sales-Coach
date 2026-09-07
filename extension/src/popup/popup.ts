@@ -111,25 +111,33 @@ async function renderMain(): Promise<void> {
 
     document.getElementById("startTabRecording")?.addEventListener("click", async () => {
       const button = document.getElementById("startTabRecording") as HTMLButtonElement;
+
+      // Confirmed via real testing: calling getUserMedia() directly from
+      // this popup shows no permission prompt at all -- Chrome's toolbar
+      // popup is too transient/ephemeral for that UI to anchor to, so the
+      // call just silently does nothing (not even a denial). Checking the
+      // CURRENT permission state instead, and opening a real, persistent
+      // tab (permissions.ts) to actually secure it if it isn't granted yet
+      // -- once granted there, it's granted for the extension's origin
+      // everywhere, including the offscreen document's own
+      // getUserMedia({audio:true}) call during the real recording (see
+      // offscreen.ts). Recording still proceeds tab-audio-only if the rep
+      // never grants it -- this never blocks on it.
+      const micStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      if (micStatus.state !== "granted") {
+        chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
+        root.innerHTML = `
+          <h1>Deal Assistant</h1>
+          <p class="status">A new tab just opened to grant microphone access.</p>
+          <p class="muted">Allow it there, then come back and click Start Recording again. Recording still works without it, but won't include your own voice -- only the other participants.</p>
+          <button id="backAfterMicPrompt">Back</button>
+        `;
+        document.getElementById("backAfterMicPrompt")!.addEventListener("click", renderMain);
+        return;
+      }
+
       button.disabled = true;
       button.textContent = "Starting…";
-
-      // Offscreen documents are invisible and can't show a permission
-      // prompt themselves -- this popup is a real, visible, interactive
-      // page, so it's the one place that can trigger/confirm Chrome's mic
-      // permission prompt for the extension's own origin. Once granted,
-      // it's granted for that origin everywhere, including the offscreen
-      // document's own getUserMedia({audio:true}) call later (see
-      // offscreen.ts) -- stopping these tracks immediately since this call
-      // exists purely to secure the permission, not to actually use the
-      // stream here. Best-effort: if the rep denies it, recording still
-      // proceeds with tab-audio-only rather than blocking entirely.
-      try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        micStream.getTracks().forEach((t) => t.stop());
-      } catch (err) {
-        console.log("[DealAssistant] mic permission not granted, recording tab audio only:", err);
-      }
 
       // Best-effort: a rep who hasn't connected Google yet (or the shared
       // Drive folder not being configured) shouldn't be blocked from
