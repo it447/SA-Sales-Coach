@@ -26,7 +26,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
 
-  const folderId = process.env.RECORDINGS_SHARED_DRIVE_FOLDER_ID;
+  // Per direction: reps can override the default folder from the
+  // extension's own settings (see popup.ts) rather than that being fixed
+  // to one env var only an admin can change -- still requires the rep's
+  // connected Google account to actually have access to whatever folder
+  // they pick, same as the default does.
+  let body: { folderId?: string | null } = {};
+  try {
+    body = await request.json();
+  } catch {
+    // No body (or invalid JSON) just means no override -- fall through to the default.
+  }
+  const folderId = body.folderId || process.env.RECORDINGS_SHARED_DRIVE_FOLDER_ID;
   if (!folderId) {
     return NextResponse.json(
       { error: "RECORDINGS_SHARED_DRIVE_FOLDER_ID is not configured on the server." },

@@ -154,6 +154,7 @@ export function setRecording(config: ExtensionConfig, sessionId: string, enabled
 export function requestRecordingUploadUrl(config: ExtensionConfig, sessionId: string): Promise<{ uploadUrl: string }> {
   return apiFetch<{ uploadUrl: string }>(config, `/api/sessions/${sessionId}/recording-upload-session`, {
     method: "POST",
+    body: JSON.stringify({ folderId: config.driveFolderId }),
   });
 }
 
@@ -168,7 +169,8 @@ export type RecordingDestination = { destination: "drive" } | { destination: "lo
  * line), it only checks the same preconditions that call would need.
  */
 export function getRecordingDestination(config: ExtensionConfig, sessionId: string): Promise<RecordingDestination> {
-  return apiFetch<RecordingDestination>(config, `/api/sessions/${sessionId}/recording-destination`);
+  const query = config.driveFolderId ? `?folderId=${encodeURIComponent(config.driveFolderId)}` : "";
+  return apiFetch<RecordingDestination>(config, `/api/sessions/${sessionId}/recording-destination${query}`);
 }
 
 /** Records a tabCapture recording's Drive file ID against the session, once offscreen.ts's direct-to-Drive upload finishes. */

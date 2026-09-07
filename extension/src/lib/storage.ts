@@ -8,6 +8,17 @@ export interface ExtensionConfig {
   apiBaseUrl: string;
   apiKey: string;
   repEmail: string;
+  /**
+   * Overrides the server's default RECORDINGS_SHARED_DRIVE_FOLDER_ID for
+   * tabCapture recordings -- optional; per direction, reps should be able
+   * to pick which Drive folder recordings land in from the extension
+   * itself, rather than that being fixed to one env var only an admin can
+   * change. Extracted from a pasted Drive folder link or a raw folder ID
+   * (see renderSettingsForm in popup.ts) -- still requires the rep's
+   * connected Google account to actually have access to it, same as the
+   * server-configured default does.
+   */
+  driveFolderId: string | null;
 }
 
 const CONFIG_KEY = "dealAssistantConfig";
