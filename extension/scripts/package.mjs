@@ -21,6 +21,8 @@ execSync(
     "dist/content.js",
     "dist/content.css",
     "dist/popup.js",
+    "dist/offscreen.js",
+    "dist/offscreen.html",
     "src/popup/popup.html",
   ].join(" "),
   { stdio: "inherit" }

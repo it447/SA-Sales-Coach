@@ -141,3 +141,26 @@ export function setRecording(config: ExtensionConfig, sessionId: string, enabled
     body: JSON.stringify({ enabled }),
   });
 }
+
+/**
+ * Gets a Google Drive resumable-upload URL for a tabCapture recording of
+ * this session — called from popup.ts right before it tells the
+ * background worker to start recording. Throws (via ApiError) if the rep
+ * hasn't connected Google or the shared Drive folder isn't configured;
+ * callers should treat that as "fall back to a local download" rather
+ * than blocking the recording, since Drive filing is a bonus on top of
+ * capturing the call at all.
+ */
+export function requestRecordingUploadUrl(config: ExtensionConfig, sessionId: string): Promise<{ uploadUrl: string }> {
+  return apiFetch<{ uploadUrl: string }>(config, `/api/sessions/${sessionId}/recording-upload-session`, {
+    method: "POST",
+  });
+}
+
+/** Records a tabCapture recording's Drive file ID against the session, once offscreen.ts's direct-to-Drive upload finishes. */
+export function reportRecordingUploaded(config: ExtensionConfig, sessionId: string, driveFileId: string): Promise<CallSession> {
+  return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/recording-uploaded`, {
+    method: "POST",
+    body: JSON.stringify({ driveFileId }),
+  });
+}

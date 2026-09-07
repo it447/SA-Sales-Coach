@@ -3,8 +3,9 @@ import * as api from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
-import { startNativeRecordingViaUi, watchForCallJoin } from "./nativeRecording";
+import { enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
+import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse } from "../lib/messages";
 
 // Shorter batch window = pricing/extraction refreshes sooner after the rep
 // finishes scoping a role, at the cost of proportionally more Claude API
@@ -19,18 +20,6 @@ const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
-// Set whenever the rep wants recording on for this call, regardless of
-// whether the pre-join API attempt reported success -- checked once they
-// actually join, to also try the in-call "click Record meeting" fallback
-// (see nativeRecording.ts). This runs unconditionally, not just when the
-// API call throws: real-world testing found Google's API can report
-// success (echoing back the requested config) while never actually
-// recording anything, with no error surfaced at all -- so API "success"
-// isn't trustworthy evidence recording will really happen. Attempting the
-// UI click regardless is safe: if auto-recording genuinely did start,
-// Meet's menu shows "Stop recording" at that point, not "Record meeting",
-// so the text-matched click below simply won't find anything to press.
-let recordingWantedForThisCall = false;
 
 const sidebar = new Sidebar({
   onRunQuote: () =>
@@ -63,6 +52,20 @@ const sidebar = new Sidebar({
     withSession((config, sessionId) => api.setRecording(config, sessionId, enabled).then(applySession).catch(showError)),
 });
 
+/**
+ * The tabCapture recording itself can only be started/stopped from the
+ * popup (see popup.ts/service-worker.ts for why) -- this just polls the
+ * background worker for whether IT actually started one for this tab, so
+ * the sidebar can show accurate status without being able to control it
+ * directly. Runs on the same cadence as the session poll loop; cheap
+ * (chrome.storage.session read), so no reason for its own timer.
+ */
+async function pollTabRecordingState(): Promise<void> {
+  const request: GetTabRecordingStateRequest = { type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE" };
+  const response: GetTabRecordingStateResponse = await chrome.runtime.sendMessage(request);
+  sidebar.setTabRecordingState(response?.isThisTabRecording ? "recording" : "idle");
+}
+
 function applySession(session: Awaited<ReturnType<typeof api.getSession>>): void {
   sidebar.update(session);
 }
@@ -88,6 +91,7 @@ async function pollLoop(): Promise<void> {
       showError(err);
     }
   });
+  await pollTabRecordingState();
   setTimeout(pollLoop, POLL_MS);
 }
 
@@ -121,14 +125,14 @@ async function flushTranscriptLoop(): Promise<void> {
  * Creates a session for this call automatically the moment the content
  * script sees a Meet page with none yet — the rep used to have to open the
  * popup and click "Start Call" for every single call, which is exactly the
- * kind of per-call manual step this tool exists to remove. Runs at the same
- * point in the page lifecycle (the pre-join screen, before "Join now" is
- * clicked) that setSpaceRecording below needs to happen at too.
+ * kind of per-call manual step this tool exists to remove.
  *
- * Only attempts recording for a session it JUST created — not one already
- * found in storage (e.g. the content script re-running after a page
- * refresh mid-call) — since re-patching an already-running call's
- * recording config on every reload would be pointless at best.
+ * Recording itself is handled separately via chrome.tabCapture, started
+ * from the extension's popup (see popup.ts/service-worker.ts) rather than
+ * anything automatic here — Meet's own native recording (both its REST
+ * API and an in-call menu click) is organizer-only, a hard Google-side
+ * restriction that made it unreliable for most real calls, which reps
+ * usually join rather than organize.
  */
 async function ensureSession(config: ExtensionConfig): Promise<string | null> {
   const meetLink = normalizeMeetLink(location.href);
@@ -138,25 +142,6 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
   try {
     const session = await api.createSession(config, meetLink, meetingNameFromTitle(document.title));
     await setSessionIdForMeet(meetLink, session.id);
-
-    if (config.recordByDefault) {
-      recordingWantedForThisCall = true;
-      try {
-        await api.setRecording(config, session.id, true);
-      } catch (err) {
-        // Recording is a bonus on top of the core transcript/pricing flow,
-        // never a blocker for it — surface the problem but keep going.
-        // setError (not setBanner) since watchForConfigAndSession's success
-        // path below unconditionally clears the banner right after this.
-        // This API path only works when the rep is the meeting's organizer
-        // -- a permission failure here almost always means they aren't.
-        // Either way, the in-call UI-click fallback still gets tried once
-        // they join (see watchForCallJoin below) since even a reported
-        // success here isn't trustworthy proof recording will really start.
-        sidebar.setError(`Couldn't enable recording automatically: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
     return session.id;
   } catch (err) {
     sidebar.setBanner(
@@ -187,22 +172,20 @@ function watchForConfigAndSession(): void {
     pollLoop();
     flushTranscriptLoop();
 
-    if (recordingWantedForThisCall) {
-      recordingWantedForThisCall = false;
-      watchForCallJoin(() => {
-        // A short delay lets Meet's own post-join UI (toolbar, side panels)
-        // finish settling before we go looking for "More options" --
-        // clicking too early risks the button not existing yet.
-        setTimeout(async () => {
-          const result = await startNativeRecordingViaUi();
-          if (result.ok) {
-            sidebar.setError(null);
-          } else {
-            sidebar.setError(`Couldn't enable recording automatically: ${result.reason}`);
-          }
-        }, 2000);
-      });
-    }
+    // Turn on Meet's own captions once the rep joins -- captions.ts's
+    // scraper needs them and otherwise relies on the rep remembering to
+    // click "CC" themselves every call.
+    watchForCallJoin(() => {
+      // A short delay lets Meet's own post-join UI (toolbar, side panels)
+      // finish settling before we go looking for the button -- clicking
+      // too early risks it not existing yet.
+      setTimeout(async () => {
+        const captionsResult = await enableCaptionsViaUi();
+        if (!captionsResult.ok) {
+          console.log(`[DealAssistant] couldn't auto-enable captions: ${captionsResult.reason}`);
+        }
+      }, 2000);
+    });
   };
   check();
 }

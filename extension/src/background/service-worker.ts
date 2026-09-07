@@ -12,18 +12,155 @@
  * So src/lib/api.ts sends every request here via chrome.runtime.sendMessage
  * instead of fetching directly — see src/lib/messages.ts.
  */
-import type { ApiFetchRequest, ApiFetchResponse } from "../lib/messages";
+import type {
+  ApiFetchRequest,
+  ApiFetchResponse,
+  StartTabRecordingRequest,
+  StopTabRecordingRequest,
+  TabRecordingResponse,
+  GetTabRecordingStateRequest,
+  GetTabRecordingStateResponse,
+  DownloadRecordingRequest,
+} from "../lib/messages";
+import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Deal Assistant installed.");
 });
 
-chrome.runtime.onMessage.addListener((message: ApiFetchRequest, _sender, sendResponse) => {
-  if (message?.type !== "DEAL_ASSISTANT_API_FETCH") return;
+type IncomingRequest =
+  | ApiFetchRequest
+  | StartTabRecordingRequest
+  | StopTabRecordingRequest
+  | GetTabRecordingStateRequest
+  | DownloadRecordingRequest;
 
-  handleApiFetch(message).then(sendResponse);
-  return true; // keep the message channel open for the async response
+chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResponse) => {
+  if (message?.type === "DEAL_ASSISTANT_API_FETCH") {
+    handleApiFetch(message).then(sendResponse);
+    return true; // keep the message channel open for the async response
+  }
+  if (message?.type === "DEAL_ASSISTANT_START_TAB_RECORDING") {
+    startTabRecording(message.tabId, message.uploadUrl, message.sessionId).then(sendResponse);
+    return true;
+  }
+  if (message?.type === "DEAL_ASSISTANT_STOP_TAB_RECORDING") {
+    stopTabRecording().then(sendResponse);
+    return true;
+  }
+  if (message?.type === "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE") {
+    getRecordingTabId()
+      .then((recordingTabId): GetTabRecordingStateResponse => ({
+        isThisTabRecording: sender.tab?.id !== undefined && sender.tab.id === recordingTabId,
+      }))
+      .then(sendResponse);
+    return true;
+  }
+  if (message?.type === "DEAL_ASSISTANT_DOWNLOAD_RECORDING") {
+    downloadRecording(message).then(sendResponse);
+    return true;
+  }
+  return false;
 });
+
+/**
+ * chrome.downloads is unavailable inside an offscreen document (confirmed
+ * via a real "Cannot read properties of undefined (reading 'download')"
+ * crash there) even though offscreen documents otherwise behave like a
+ * normal extension page -- so the offscreen document builds the
+ * recording and its blob: URL, and this background worker (which does
+ * have full API access) does the actual save.
+ */
+async function downloadRecording(request: DownloadRecordingRequest): Promise<TabRecordingResponse> {
+  try {
+    const downloadId = await new Promise<number>((resolve, reject) => {
+      chrome.downloads.download({ url: request.url, filename: request.filename, saveAs: false }, (id) => {
+        if (chrome.runtime.lastError || id === undefined) {
+          reject(new Error(chrome.runtime.lastError?.message ?? "Chrome didn't return a download ID."));
+        } else {
+          resolve(id);
+        }
+      });
+    });
+    console.log("[DealAssistant] download started, id:", downloadId);
+    return { success: true };
+  } catch (err) {
+    console.log("[DealAssistant] download failed:", err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const OFFSCREEN_DOCUMENT_PATH = "dist/offscreen.html";
+
+/**
+ * chrome.tabCapture requires the caller to be an extension page (background
+ * worker or offscreen document), not a content script -- and service
+ * workers have no DOM/media APIs to actually record with. So this mints a
+ * stream ID for the given tab, then hands it to a hidden offscreen
+ * document (created on demand, reused across calls) where the real
+ * capture happens, including mixing in the rep's own mic (see
+ * offscreen.ts).
+ *
+ * tabId must come from the popup (see messages.ts) -- tabCapture itself
+ * requires the user to have just invoked the extension via its toolbar
+ * icon (or similar recognized gesture), which is exactly what opening the
+ * popup is; a content-script-originated call fails with "Extension has
+ * not been invoked for the current page" even with matching
+ * host_permissions.
+ */
+async function startTabRecording(tabId: number, uploadUrl: string | null, sessionId: string): Promise<TabRecordingResponse> {
+  try {
+    await ensureOffscreenDocument();
+
+    const streamId = await new Promise<string>((resolve, reject) => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+        if (chrome.runtime.lastError || !id) {
+          reject(new Error(chrome.runtime.lastError?.message ?? "Chrome didn't return a capture stream ID."));
+        } else {
+          resolve(id);
+        }
+      });
+    });
+
+    const response: TabRecordingResponse = await chrome.runtime.sendMessage({
+      type: "DEAL_ASSISTANT_OFFSCREEN_START",
+      streamId,
+      uploadUrl,
+      sessionId,
+    });
+    if (response?.success) {
+      await setRecordingTabId(tabId);
+    }
+    return response;
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function stopTabRecording(): Promise<TabRecordingResponse> {
+  try {
+    const response: TabRecordingResponse = await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_OFFSCREEN_STOP" });
+    await setRecordingTabId(null); // clear regardless of response -- nothing to recover into if the stop itself half-failed
+    return response;
+  } catch (err) {
+    await setRecordingTabId(null);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)],
+  });
+  if (existingContexts.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    reasons: [chrome.offscreen.Reason.USER_MEDIA],
+    justification: "Recording the Meet call's audio and video via chrome.tabCapture.",
+  });
+}
 
 async function handleApiFetch(request: ApiFetchRequest): Promise<ApiFetchResponse> {
   try {

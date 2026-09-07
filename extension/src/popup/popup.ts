@@ -1,7 +1,14 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
-import { createSession, ApiError } from "../lib/api";
+import { createSession, requestRecordingUploadUrl, ApiError } from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import type { ExtensionConfig } from "../lib/storage";
+import type {
+  StartTabRecordingRequest,
+  StopTabRecordingRequest,
+  TabRecordingResponse,
+  GetTabRecordingStateRequest,
+  GetTabRecordingStateResponse,
+} from "../lib/messages";
 
 const root = document.getElementById("root")!;
 
@@ -12,7 +19,6 @@ function isMeetUrl(url: string | undefined): boolean {
 function renderSettingsForm(existing: ExtensionConfig | null, message?: string): void {
   const apiBaseUrlValue = existing?.apiBaseUrl ?? "https://sa-sales-coach.vercel.app";
   const repEmailValue = existing?.repEmail ?? "";
-  const recordByDefault = existing?.recordByDefault ?? true;
 
   root.innerHTML = `
     <h1>Deal Assistant Settings</h1>
@@ -29,13 +35,9 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
       <label>Your email</label>
       <input id="repEmail" value="${repEmailValue}" />
     </div>
-    <div class="field">
-      <label><input id="recordByDefault" type="checkbox" ${recordByDefault ? "checked" : ""} /> Record calls by default</label>
-      <p class="muted">Turns on Google Meet's native recording automatically when you start a call. Turn off per-call in the sidebar if the client objects.</p>
-    </div>
     <button id="save">Save Settings</button>
     <hr />
-    <p class="muted">To enable recording, connect the Google account you host your calls with:</p>
+    <p class="muted">Optional -- only needed for the manual "Recording" toggle in the sidebar and finding a Meet-recorded file in Drive. Not required for the tab recording (this device) feature.</p>
     <button class="secondary" id="connectGoogle">Connect Google Account</button>
   `;
 
@@ -43,14 +45,13 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
     const apiBaseUrl = (document.getElementById("apiBaseUrl") as HTMLInputElement).value.trim().replace(/\/$/, "");
     const apiKey = (document.getElementById("apiKey") as HTMLInputElement).value.trim();
     const repEmail = (document.getElementById("repEmail") as HTMLInputElement).value.trim();
-    const recordByDefaultChecked = (document.getElementById("recordByDefault") as HTMLInputElement).checked;
 
     if (!apiBaseUrl || !apiKey || !repEmail) {
       renderSettingsForm(existing, "All three fields are required.");
       return;
     }
 
-    await setConfig({ apiBaseUrl, apiKey, repEmail, recordByDefault: recordByDefaultChecked });
+    await setConfig({ apiBaseUrl, apiKey, repEmail });
     renderMain();
   });
 
@@ -88,13 +89,81 @@ async function renderMain(): Promise<void> {
   const sessionId = await getSessionIdForMeet(meetLink);
 
   if (sessionId) {
+    const tabId = tab!.id!;
+    const stateResponse: GetTabRecordingStateResponse = await chrome.runtime.sendMessage({
+      type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE",
+    } satisfies GetTabRecordingStateRequest);
+
     root.innerHTML = `
       <h1>Deal Assistant</h1>
       <p class="status">Session active for this call.</p>
       <p class="muted">Session ID: ${sessionId}</p>
       <p class="muted">The coaching sidebar should be visible on the right side of your Meet tab.</p>
+      <hr />
+      <p class="muted">Recording works regardless of who organized the call -- captures this tab's audio/video directly (must be started/stopped from here, not the sidebar, since Chrome only allows tab capture right after opening this popup).</p>
+      ${
+        stateResponse.isThisTabRecording
+          ? `<button id="stopTabRecording">Stop Recording</button>`
+          : `<button id="startTabRecording">Start Recording (this device)</button>`
+      }
       <button class="secondary" id="editSettings">Edit Settings</button>
     `;
+
+    document.getElementById("startTabRecording")?.addEventListener("click", async () => {
+      const button = document.getElementById("startTabRecording") as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "Starting…";
+
+      // Offscreen documents are invisible and can't show a permission
+      // prompt themselves -- this popup is a real, visible, interactive
+      // page, so it's the one place that can trigger/confirm Chrome's mic
+      // permission prompt for the extension's own origin. Once granted,
+      // it's granted for that origin everywhere, including the offscreen
+      // document's own getUserMedia({audio:true}) call later (see
+      // offscreen.ts) -- stopping these tracks immediately since this call
+      // exists purely to secure the permission, not to actually use the
+      // stream here. Best-effort: if the rep denies it, recording still
+      // proceeds with tab-audio-only rather than blocking entirely.
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream.getTracks().forEach((t) => t.stop());
+      } catch (err) {
+        console.log("[DealAssistant] mic permission not granted, recording tab audio only:", err);
+      }
+
+      // Best-effort: a rep who hasn't connected Google yet (or the shared
+      // Drive folder not being configured) shouldn't be blocked from
+      // recording at all -- offscreen.ts falls back to a local download
+      // when uploadUrl is null.
+      let uploadUrl: string | null = null;
+      try {
+        uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
+      } catch (err) {
+        console.log("[DealAssistant] couldn't get a Drive upload URL, will fall back to local download:", err);
+      }
+
+      const response: TabRecordingResponse = await chrome.runtime.sendMessage({
+        type: "DEAL_ASSISTANT_START_TAB_RECORDING",
+        tabId,
+        uploadUrl,
+        sessionId,
+      } satisfies StartTabRecordingRequest);
+      if (response.success) {
+        renderMain();
+      } else {
+        root.innerHTML = `<h1>Deal Assistant</h1><p class="status" style="color:#e74c3c">${response.error}</p><button id="retry">Back</button>`;
+        document.getElementById("retry")!.addEventListener("click", renderMain);
+      }
+    });
+
+    document.getElementById("stopTabRecording")?.addEventListener("click", async () => {
+      const button = document.getElementById("stopTabRecording") as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "Stopping…";
+      await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" } satisfies StopTabRecordingRequest);
+      renderMain();
+    });
+
     bindEditSettings(config);
     return;
   }
