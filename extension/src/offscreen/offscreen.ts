@@ -22,7 +22,7 @@
  * start. If mic access still isn't available for any reason, this falls
  * back to tab-audio-only rather than failing the whole recording.
  */
-import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest } from "../lib/messages";
+import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest, RecordingEndedRequest } from "../lib/messages";
 import { getConfig } from "../lib/storage";
 import { reportRecordingUploaded } from "../lib/api";
 
@@ -120,6 +120,15 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   };
   mediaRecorder.onstop = () => {
     console.log("[DealAssistant] onstop fired, total chunks:", recordedChunks.length, "total bytes:", recordedChunks.reduce((sum, c) => sum + c.size, 0));
+
+    // Tell the background worker recording has ended, regardless of why
+    // (explicit Stop click, or the tab capture track ending on its own) --
+    // without this, an auto-stop left the background's own recordingTabId
+    // state (and so the toolbar badge and the sidebar's status text)
+    // stuck showing "still recording" forever, since nothing else would
+    // ever tell it otherwise.
+    const endedRequest: RecordingEndedRequest = { type: "DEAL_ASSISTANT_RECORDING_ENDED" };
+    chrome.runtime.sendMessage(endedRequest).catch((err) => console.log("[DealAssistant] couldn't notify background of recording end:", err));
 
     // Release the capture BEFORE attempting the download below, not after.
     // A real crash here previously found chrome.downloads is undefined in

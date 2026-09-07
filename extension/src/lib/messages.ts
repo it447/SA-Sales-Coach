@@ -95,3 +95,18 @@ export interface DownloadRecordingRequest {
   url: string;
   filename: string;
 }
+
+/**
+ * Offscreen document -> background service worker: recording has actually
+ * ended, for ANY reason -- an explicit "Stop Recording" click (which
+ * already tells the background worker directly, see
+ * DEAL_ASSISTANT_STOP_TAB_RECORDING) OR the tab capture track ending on
+ * its own (closing/leaving the Meet tab -- see offscreen.ts). Before this
+ * existed, that second path left the background worker's own
+ * recordingTabId state (and so the toolbar badge and the sidebar's status
+ * text) stuck on "still recording" forever after an auto-stop, since
+ * nothing ever told it otherwise.
+ */
+export interface RecordingEndedRequest {
+  type: "DEAL_ASSISTANT_RECORDING_ENDED";
+}

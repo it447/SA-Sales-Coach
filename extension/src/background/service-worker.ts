@@ -21,6 +21,7 @@ import type {
   GetTabRecordingStateRequest,
   GetTabRecordingStateResponse,
   DownloadRecordingRequest,
+  RecordingEndedRequest,
 } from "../lib/messages";
 import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
 
@@ -33,7 +34,8 @@ type IncomingRequest =
   | StartTabRecordingRequest
   | StopTabRecordingRequest
   | GetTabRecordingStateRequest
-  | DownloadRecordingRequest;
+  | DownloadRecordingRequest
+  | RecordingEndedRequest;
 
 chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResponse) => {
   if (message?.type === "DEAL_ASSISTANT_API_FETCH") {
@@ -60,8 +62,37 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
     downloadRecording(message).then(sendResponse);
     return true;
   }
+  if (message?.type === "DEAL_ASSISTANT_RECORDING_ENDED") {
+    markRecordingStopped().then(() => sendResponse({ success: true }));
+    return true;
+  }
   return false;
 });
+
+/**
+ * A toolbar-icon badge, visible regardless of which tab is focused, so a
+ * rep who's not actively looking at the sidebar still has a clear,
+ * persistent answer to "is this actually still recording" -- important
+ * given recording can end on its own (closing the Meet tab) as well as
+ * from an explicit Stop click, and the whole point is the rep shouldn't
+ * have to wonder or go check.
+ */
+async function setRecordingBadge(active: boolean): Promise<void> {
+  await chrome.action.setBadgeText({ text: active ? "REC" : "" });
+  if (active) {
+    await chrome.action.setBadgeBackgroundColor({ color: "#e74c3c" });
+  }
+}
+
+/** Shared by both ways a recording can end -- an explicit Stop click and
+ * the tab capture track ending on its own (see offscreen.ts) -- so the
+ * badge and recordingTabId state (which the sidebar's status text and the
+ * popup's Start/Stop button both read) can never go stale regardless of
+ * which one happens. */
+async function markRecordingStopped(): Promise<void> {
+  await setRecordingTabId(null);
+  await setRecordingBadge(false);
+}
 
 /**
  * chrome.downloads is unavailable inside an offscreen document (confirmed
@@ -130,6 +161,7 @@ async function startTabRecording(tabId: number, uploadUrl: string | null, sessio
     });
     if (response?.success) {
       await setRecordingTabId(tabId);
+      await setRecordingBadge(true);
     }
     return response;
   } catch (err) {
@@ -140,10 +172,14 @@ async function startTabRecording(tabId: number, uploadUrl: string | null, sessio
 async function stopTabRecording(): Promise<TabRecordingResponse> {
   try {
     const response: TabRecordingResponse = await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_OFFSCREEN_STOP" });
-    await setRecordingTabId(null); // clear regardless of response -- nothing to recover into if the stop itself half-failed
+    // markRecordingStopped() also runs when offscreen.ts's onstop fires and
+    // sends DEAL_ASSISTANT_RECORDING_ENDED -- calling it again here too is
+    // harmless (idempotent) and covers the case where that message
+    // somehow doesn't arrive.
+    await markRecordingStopped();
     return response;
   } catch (err) {
-    await setRecordingTabId(null);
+    await markRecordingStopped();
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
