@@ -161,27 +161,42 @@ async function renderMain(): Promise<void> {
           <span class="slider"></span>
         </label>
       </div>
-      ${stateResponse.isThisTabRecording ? "" : `<button class="secondary" id="grantMic">Grant microphone access</button>`}
+      <div class="toggle-row">
+        <span id="micToggleLabel">Checking mic access…</span>
+        <label class="toggle">
+          <input type="checkbox" id="micToggle" disabled />
+          <span class="slider"></span>
+        </label>
+      </div>
       <button class="secondary" id="editSettings">Edit Settings</button>
       <button class="secondary" id="viewDebugLog">View debug log</button>
     `;
 
     document.getElementById("viewDebugLog")?.addEventListener("click", () => renderDebugLog(renderMain));
 
-    // A ONE-TIME, entirely separate step from actually starting a
-    // recording -- gating "Start Recording" itself on the mic permission
-    // state (an earlier version of this code did that) turned into a
-    // silent dead end: real-call testing found it kept redirecting to
-    // this tab on every single click without ever actually starting a
-    // recording, meaning querying permission state from this popup is
-    // itself unreliable, the same category of problem as the popup being
-    // unable to show the prompt directly. So the toggle below always just
-    // starts (falling back to tab-audio-only if mic access isn't there),
-    // and granting mic access is now this fully independent button the
-    // rep can click once, whenever, with no bearing on whether recording
-    // itself works.
-    document.getElementById("grantMic")?.addEventListener("click", () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
+    // A read-only reflection of the CURRENT permission state, not a real
+    // on/off control -- there's no API for an extension to revoke a
+    // microphone grant it already has, only to request one. So this
+    // toggle shows "on" (and stays disabled, since there's nothing to
+    // switch off to) once granted, or "off" and clickable -- which opens
+    // permissions.ts's dedicated tab to actually secure it -- while it
+    // isn't. This is purely informational: recording itself never gates
+    // on this state (an earlier version of this code did, and that
+    // turned into a silent dead end -- see git history), it always
+    // starts regardless, falling back to tab-audio-only if mic access
+    // isn't there.
+    const micToggle = document.getElementById("micToggle") as HTMLInputElement;
+    const micToggleLabel = document.getElementById("micToggleLabel")!;
+    navigator.permissions.query({ name: "microphone" as PermissionName }).then((status) => {
+      const granted = status.state === "granted";
+      micToggle.checked = granted;
+      micToggle.disabled = granted; // nothing to switch off TO -- Chrome has no API to revoke this from here
+      micToggleLabel.textContent = granted ? "Microphone access granted" : "Microphone access — click to grant";
+    });
+    micToggle.addEventListener("change", () => {
+      if (micToggle.checked) {
+        chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
+      }
     });
 
     const toggle = document.getElementById("recordingToggle") as HTMLInputElement;
