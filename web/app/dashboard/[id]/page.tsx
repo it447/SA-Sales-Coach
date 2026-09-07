@@ -41,7 +41,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
 
       <SummaryPanel sessionId={session.id} initialSummary={session.summary} />
 
-      {session.recordingEnabled === true && (
+      {(session.recordingEnabled === true || session.recordingDriveFileId) && (
         <RecordingPanel sessionId={session.id} initialDriveFileId={session.recordingDriveFileId} />
       )}
 
