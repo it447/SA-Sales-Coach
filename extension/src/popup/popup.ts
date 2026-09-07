@@ -17,6 +17,23 @@ function isMeetUrl(url: string | undefined): boolean {
   return !!url && url.startsWith("https://meet.google.com/");
 }
 
+/**
+ * Accepts either a pasted Drive folder link (any of Drive's URL shapes
+ * that contain "/folders/<id>") or a raw folder ID typed/pasted directly,
+ * and returns just the ID either way. Rejects anything that still looks
+ * like a URL fragment (contains "/") without matching that pattern, so a
+ * malformed link fails obviously in Settings rather than silently getting
+ * sent to the server as a bogus "folder ID".
+ */
+function extractDriveFolderId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (match) return match[1];
+  if (trimmed.includes("/")) return null;
+  return trimmed;
+}
+
 function renderSettingsForm(existing: ExtensionConfig | null, message?: string): void {
   const apiBaseUrlValue = existing?.apiBaseUrl ?? "https://sa-sales-coach.vercel.app";
   const repEmailValue = existing?.repEmail ?? "";
@@ -40,6 +57,13 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
     <hr />
     <p class="muted">Optional -- only needed for the manual "Recording" toggle in the sidebar and finding a Meet-recorded file in Drive. Not required for the tab recording (this device) feature.</p>
     <button class="secondary" id="connectGoogle">Connect Google Account</button>
+    <hr />
+    <div class="field">
+      <label>Drive folder for recordings (optional)</label>
+      <input id="driveFolderId" placeholder="Paste a Drive folder link, or its ID" value="${existing?.driveFolderId ?? ""}" />
+    </div>
+    <p class="muted">Overrides the default shared folder for tabCapture recordings. Open the folder in Drive, copy its link, and paste it here -- your connected Google account still needs access to it. Leave blank to use the default.</p>
+    <button id="saveDriveFolder">Save Drive Folder</button>
   `;
 
   document.getElementById("save")!.addEventListener("click", async () => {
@@ -52,8 +76,19 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
       return;
     }
 
-    await setConfig({ apiBaseUrl, apiKey, repEmail });
+    await setConfig({ apiBaseUrl, apiKey, repEmail, driveFolderId: existing?.driveFolderId ?? null });
     renderMain();
+  });
+
+  document.getElementById("saveDriveFolder")!.addEventListener("click", async () => {
+    const raw = (document.getElementById("driveFolderId") as HTMLInputElement).value;
+    if (!existing) return; // the main Save Settings button above must be used first
+    if (raw.trim() && !extractDriveFolderId(raw)) {
+      renderSettingsForm(existing, "That doesn't look like a Drive folder link or ID -- paste the folder's link from Drive's own \"Copy link\" option, or leave it blank.");
+      return;
+    }
+    await setConfig({ ...existing, driveFolderId: extractDriveFolderId(raw) });
+    renderSettingsForm({ ...existing, driveFolderId: extractDriveFolderId(raw) }, "Drive folder saved.");
   });
 
   document.getElementById("connectGoogle")!.addEventListener("click", () => {
@@ -119,12 +154,14 @@ async function renderMain(): Promise<void> {
       <hr />
       <p class="muted">Recording works regardless of who organized the call -- captures this tab's audio/video directly (must be started/stopped from here, not the sidebar, since Chrome only allows tab capture right after opening this popup).</p>
       ${destinationHtml}
-      ${
-        stateResponse.isThisTabRecording
-          ? `<button id="stopTabRecording">Stop Recording</button>`
-          : `<button id="startTabRecording">Start Recording (this device)</button>
-             <button class="secondary" id="grantMic">Grant microphone access</button>`
-      }
+      <div class="toggle-row">
+        <span id="recordingToggleLabel">${stateResponse.isThisTabRecording ? "Recording" : "Not recording"}</span>
+        <label class="toggle">
+          <input type="checkbox" id="recordingToggle" ${stateResponse.isThisTabRecording ? "checked" : ""} />
+          <span class="slider"></span>
+        </label>
+      </div>
+      ${stateResponse.isThisTabRecording ? "" : `<button class="secondary" id="grantMic">Grant microphone access</button>`}
       <button class="secondary" id="editSettings">Edit Settings</button>
       <button class="secondary" id="viewDebugLog">View debug log</button>
     `;
@@ -138,52 +175,52 @@ async function renderMain(): Promise<void> {
     // this tab on every single click without ever actually starting a
     // recording, meaning querying permission state from this popup is
     // itself unreliable, the same category of problem as the popup being
-    // unable to show the prompt directly. So "Start Recording" below
-    // always just starts (falling back to tab-audio-only if mic access
-    // isn't there), and granting mic access is now this fully independent
-    // button the rep can click once, whenever, with no bearing on whether
-    // recording itself works.
+    // unable to show the prompt directly. So the toggle below always just
+    // starts (falling back to tab-audio-only if mic access isn't there),
+    // and granting mic access is now this fully independent button the
+    // rep can click once, whenever, with no bearing on whether recording
+    // itself works.
     document.getElementById("grantMic")?.addEventListener("click", () => {
       chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
     });
 
-    document.getElementById("startTabRecording")?.addEventListener("click", async () => {
-      const button = document.getElementById("startTabRecording") as HTMLButtonElement;
-      button.disabled = true;
-      button.textContent = "Starting…";
+    const toggle = document.getElementById("recordingToggle") as HTMLInputElement;
+    const toggleLabel = document.getElementById("recordingToggleLabel")!;
+    toggle.addEventListener("change", async () => {
+      toggle.disabled = true;
 
-      // Best-effort: a rep who hasn't connected Google yet (or the shared
-      // Drive folder not being configured) shouldn't be blocked from
-      // recording at all -- offscreen.ts falls back to a local download
-      // when uploadUrl is null.
-      let uploadUrl: string | null = null;
-      try {
-        uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
-        await logDebug(`got Drive upload URL for session ${sessionId}`);
-      } catch (err) {
-        await logDebug(`couldn't get a Drive upload URL, will fall back to local download: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      if (toggle.checked) {
+        toggleLabel.textContent = "Starting…";
 
-      const response: TabRecordingResponse = await chrome.runtime.sendMessage({
-        type: "DEAL_ASSISTANT_START_TAB_RECORDING",
-        tabId,
-        uploadUrl,
-        sessionId,
-      } satisfies StartTabRecordingRequest);
-      if (response.success) {
-        renderMain();
+        // Best-effort: a rep who hasn't connected Google yet (or the shared
+        // Drive folder not being configured) shouldn't be blocked from
+        // recording at all -- offscreen.ts falls back to a local download
+        // when uploadUrl is null.
+        let uploadUrl: string | null = null;
+        try {
+          uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
+          await logDebug(`got Drive upload URL for session ${sessionId}`);
+        } catch (err) {
+          await logDebug(`couldn't get a Drive upload URL, will fall back to local download: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const response: TabRecordingResponse = await chrome.runtime.sendMessage({
+          type: "DEAL_ASSISTANT_START_TAB_RECORDING",
+          tabId,
+          uploadUrl,
+          sessionId,
+        } satisfies StartTabRecordingRequest);
+        if (response.success) {
+          renderMain();
+        } else {
+          root.innerHTML = `<h1>Deal Assistant</h1><p class="status" style="color:#e74c3c">${response.error}</p><button id="retry">Back</button>`;
+          document.getElementById("retry")!.addEventListener("click", renderMain);
+        }
       } else {
-        root.innerHTML = `<h1>Deal Assistant</h1><p class="status" style="color:#e74c3c">${response.error}</p><button id="retry">Back</button>`;
-        document.getElementById("retry")!.addEventListener("click", renderMain);
+        toggleLabel.textContent = "Stopping…";
+        await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" } satisfies StopTabRecordingRequest);
+        renderMain();
       }
-    });
-
-    document.getElementById("stopTabRecording")?.addEventListener("click", async () => {
-      const button = document.getElementById("stopTabRecording") as HTMLButtonElement;
-      button.disabled = true;
-      button.textContent = "Stopping…";
-      await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" } satisfies StopTabRecordingRequest);
-      renderMain();
     });
 
     bindEditSettings(config);

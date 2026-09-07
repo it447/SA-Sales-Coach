@@ -23,7 +23,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
 
-  const folderId = process.env.RECORDINGS_SHARED_DRIVE_FOLDER_ID;
+  // See recording-upload-session/route.ts -- a rep-supplied folderId (from
+  // the extension's own settings) overrides the server's default.
+  const folderId = request.nextUrl.searchParams.get("folderId") || process.env.RECORDINGS_SHARED_DRIVE_FOLDER_ID;
   if (!folderId) {
     return NextResponse.json({ destination: "local", reason: "Shared Drive folder isn't configured yet." });
   }
