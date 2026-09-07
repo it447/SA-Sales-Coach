@@ -68,6 +68,23 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
     captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
   );
 
+  // Before mic mixing, closing/leaving the Meet tab ended tabCapture's own
+  // tracks, which auto-stops a MediaRecorder recording them directly --
+  // that's how a real call finished cleanly without the rep needing to
+  // remember to click "Stop Recording". But a MediaStreamAudioDestinationNode's
+  // output track (below) has its OWN independent lifecycle -- it doesn't
+  // end just because the tab audio track feeding into it did, so once mic
+  // mixing was added, MediaRecorder had no track left to notice the tab
+  // was gone, and closing it silently left the recording running forever
+  // with nothing ever finalized. Explicitly stopping on the tab's own
+  // track ending restores the old behavior regardless of mixing.
+  captureStream.getVideoTracks().forEach((track) => {
+    track.onended = () => {
+      console.log("[DealAssistant] tab capture track ended (tab closed/left) -- auto-stopping recorder");
+      stopCapture();
+    };
+  });
+
   // Mix in the rep's own mic (see file-level comment for why tab capture
   // alone isn't enough) -- best-effort: falls back to tab-audio-only if
   // this fails for any reason, rather than failing the whole recording.
