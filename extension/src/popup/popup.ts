@@ -1,5 +1,5 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
-import { createSession, ApiError } from "../lib/api";
+import { createSession, requestRecordingUploadUrl, ApiError } from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import type { ExtensionConfig } from "../lib/storage";
 import type {
@@ -113,9 +113,40 @@ async function renderMain(): Promise<void> {
       const button = document.getElementById("startTabRecording") as HTMLButtonElement;
       button.disabled = true;
       button.textContent = "Starting…";
+
+      // Offscreen documents are invisible and can't show a permission
+      // prompt themselves -- this popup is a real, visible, interactive
+      // page, so it's the one place that can trigger/confirm Chrome's mic
+      // permission prompt for the extension's own origin. Once granted,
+      // it's granted for that origin everywhere, including the offscreen
+      // document's own getUserMedia({audio:true}) call later (see
+      // offscreen.ts) -- stopping these tracks immediately since this call
+      // exists purely to secure the permission, not to actually use the
+      // stream here. Best-effort: if the rep denies it, recording still
+      // proceeds with tab-audio-only rather than blocking entirely.
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream.getTracks().forEach((t) => t.stop());
+      } catch (err) {
+        console.log("[DealAssistant] mic permission not granted, recording tab audio only:", err);
+      }
+
+      // Best-effort: a rep who hasn't connected Google yet (or the shared
+      // Drive folder not being configured) shouldn't be blocked from
+      // recording at all -- offscreen.ts falls back to a local download
+      // when uploadUrl is null.
+      let uploadUrl: string | null = null;
+      try {
+        uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
+      } catch (err) {
+        console.log("[DealAssistant] couldn't get a Drive upload URL, will fall back to local download:", err);
+      }
+
       const response: TabRecordingResponse = await chrome.runtime.sendMessage({
         type: "DEAL_ASSISTANT_START_TAB_RECORDING",
         tabId,
+        uploadUrl,
+        sessionId,
       } satisfies StartTabRecordingRequest);
       if (response.success) {
         renderMain();

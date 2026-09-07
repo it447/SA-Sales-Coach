@@ -45,6 +45,14 @@ export type ApiFetchResponse = { success: true; data: unknown } | { success: fal
 export interface StartTabRecordingRequest {
   type: "DEAL_ASSISTANT_START_TAB_RECORDING";
   tabId: number;
+  /** Drive resumable-upload URL from api.ts's requestRecordingUploadUrl, or
+   * null if that failed (rep hasn't connected Google, folder not
+   * configured, etc.) -- offscreen.ts falls back to a local download when
+   * null, rather than blocking the recording on Drive being available. */
+  uploadUrl: string | null;
+  /** Needed so offscreen.ts can report the finished Drive file's ID back
+   * against the right session once the upload completes. */
+  sessionId: string;
 }
 export interface StopTabRecordingRequest {
   type: "DEAL_ASSISTANT_STOP_TAB_RECORDING";
@@ -62,6 +70,8 @@ export type GetTabRecordingStateResponse = { isThisTabRecording: boolean };
 export interface OffscreenStartRequest {
   type: "DEAL_ASSISTANT_OFFSCREEN_START";
   streamId: string;
+  uploadUrl: string | null;
+  sessionId: string;
 }
 export interface OffscreenStopRequest {
   type: "DEAL_ASSISTANT_OFFSCREEN_STOP";

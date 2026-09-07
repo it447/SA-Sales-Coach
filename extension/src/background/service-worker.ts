@@ -41,7 +41,7 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
     return true; // keep the message channel open for the async response
   }
   if (message?.type === "DEAL_ASSISTANT_START_TAB_RECORDING") {
-    startTabRecording(message.tabId).then(sendResponse);
+    startTabRecording(message.tabId, message.uploadUrl, message.sessionId).then(sendResponse);
     return true;
   }
   if (message?.type === "DEAL_ASSISTANT_STOP_TAB_RECORDING") {
@@ -98,8 +98,8 @@ const OFFSCREEN_DOCUMENT_PATH = "dist/offscreen.html";
  * workers have no DOM/media APIs to actually record with. So this mints a
  * stream ID for the given tab, then hands it to a hidden offscreen
  * document (created on demand, reused across calls) where the real
- * capture happens. See offscreen.ts for why this only captures the tab's
- * own audio/video (not the rep's own mic) for now.
+ * capture happens, including mixing in the rep's own mic (see
+ * offscreen.ts).
  *
  * tabId must come from the popup (see messages.ts) -- tabCapture itself
  * requires the user to have just invoked the extension via its toolbar
@@ -108,7 +108,7 @@ const OFFSCREEN_DOCUMENT_PATH = "dist/offscreen.html";
  * not been invoked for the current page" even with matching
  * host_permissions.
  */
-async function startTabRecording(tabId: number): Promise<TabRecordingResponse> {
+async function startTabRecording(tabId: number, uploadUrl: string | null, sessionId: string): Promise<TabRecordingResponse> {
   try {
     await ensureOffscreenDocument();
 
@@ -125,6 +125,8 @@ async function startTabRecording(tabId: number): Promise<TabRecordingResponse> {
     const response: TabRecordingResponse = await chrome.runtime.sendMessage({
       type: "DEAL_ASSISTANT_OFFSCREEN_START",
       streamId,
+      uploadUrl,
+      sessionId,
     });
     if (response?.success) {
       await setRecordingTabId(tabId);
