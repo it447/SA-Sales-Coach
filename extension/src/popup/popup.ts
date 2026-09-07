@@ -1,6 +1,7 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
-import { createSession, requestRecordingUploadUrl, ApiError } from "../lib/api";
+import { createSession, requestRecordingUploadUrl, getRecordingDestination, ApiError } from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
+import { logDebug, readDebugLog, clearDebugLog } from "../lib/debugLog";
 import type { ExtensionConfig } from "../lib/storage";
 import type {
   StartTabRecordingRequest,
@@ -94,6 +95,22 @@ async function renderMain(): Promise<void> {
       type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE",
     } satisfies GetTabRecordingStateRequest);
 
+    // Shown BEFORE the rep clicks Start Recording, not just after --
+    // real-call testing found "where did it actually save to" was only
+    // ever discoverable after the fact (or not at all, without digging
+    // through a debug log), which is exactly backwards for something the
+    // rep might want to fix (e.g. connect Google) before the call starts.
+    let destinationHtml = "";
+    try {
+      const destination = await getRecordingDestination(config, sessionId);
+      destinationHtml =
+        destination.destination === "drive"
+          ? `<p class="muted">📁 Will save to: Google Drive (shared folder)</p>`
+          : `<p class="muted">💾 Will save to: local Downloads — ${destination.reason}</p>`;
+    } catch (err) {
+      destinationHtml = `<p class="muted">Couldn't check where recordings will save: ${err instanceof Error ? err.message : String(err)}</p>`;
+    }
+
     root.innerHTML = `
       <h1>Deal Assistant</h1>
       <p class="status">Session active for this call.</p>
@@ -101,41 +118,37 @@ async function renderMain(): Promise<void> {
       <p class="muted">The coaching sidebar should be visible on the right side of your Meet tab.</p>
       <hr />
       <p class="muted">Recording works regardless of who organized the call -- captures this tab's audio/video directly (must be started/stopped from here, not the sidebar, since Chrome only allows tab capture right after opening this popup).</p>
+      ${destinationHtml}
       ${
         stateResponse.isThisTabRecording
           ? `<button id="stopTabRecording">Stop Recording</button>`
-          : `<button id="startTabRecording">Start Recording (this device)</button>`
+          : `<button id="startTabRecording">Start Recording (this device)</button>
+             <button class="secondary" id="grantMic">Grant microphone access</button>`
       }
       <button class="secondary" id="editSettings">Edit Settings</button>
+      <button class="secondary" id="viewDebugLog">View debug log</button>
     `;
+
+    document.getElementById("viewDebugLog")?.addEventListener("click", () => renderDebugLog(renderMain));
+
+    // A ONE-TIME, entirely separate step from actually starting a
+    // recording -- gating "Start Recording" itself on the mic permission
+    // state (an earlier version of this code did that) turned into a
+    // silent dead end: real-call testing found it kept redirecting to
+    // this tab on every single click without ever actually starting a
+    // recording, meaning querying permission state from this popup is
+    // itself unreliable, the same category of problem as the popup being
+    // unable to show the prompt directly. So "Start Recording" below
+    // always just starts (falling back to tab-audio-only if mic access
+    // isn't there), and granting mic access is now this fully independent
+    // button the rep can click once, whenever, with no bearing on whether
+    // recording itself works.
+    document.getElementById("grantMic")?.addEventListener("click", () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
+    });
 
     document.getElementById("startTabRecording")?.addEventListener("click", async () => {
       const button = document.getElementById("startTabRecording") as HTMLButtonElement;
-
-      // Confirmed via real testing: calling getUserMedia() directly from
-      // this popup shows no permission prompt at all -- Chrome's toolbar
-      // popup is too transient/ephemeral for that UI to anchor to, so the
-      // call just silently does nothing (not even a denial). Checking the
-      // CURRENT permission state instead, and opening a real, persistent
-      // tab (permissions.ts) to actually secure it if it isn't granted yet
-      // -- once granted there, it's granted for the extension's origin
-      // everywhere, including the offscreen document's own
-      // getUserMedia({audio:true}) call during the real recording (see
-      // offscreen.ts). Recording still proceeds tab-audio-only if the rep
-      // never grants it -- this never blocks on it.
-      const micStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
-      if (micStatus.state !== "granted") {
-        chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
-        root.innerHTML = `
-          <h1>Deal Assistant</h1>
-          <p class="status">A new tab just opened to grant microphone access.</p>
-          <p class="muted">Allow it there, then come back and click Start Recording again. Recording still works without it, but won't include your own voice -- only the other participants.</p>
-          <button id="backAfterMicPrompt">Back</button>
-        `;
-        document.getElementById("backAfterMicPrompt")!.addEventListener("click", renderMain);
-        return;
-      }
-
       button.disabled = true;
       button.textContent = "Starting…";
 
@@ -146,8 +159,9 @@ async function renderMain(): Promise<void> {
       let uploadUrl: string | null = null;
       try {
         uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
+        await logDebug(`got Drive upload URL for session ${sessionId}`);
       } catch (err) {
-        console.log("[DealAssistant] couldn't get a Drive upload URL, will fall back to local download:", err);
+        await logDebug(`couldn't get a Drive upload URL, will fall back to local download: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       const response: TabRecordingResponse = await chrome.runtime.sendMessage({
@@ -206,6 +220,32 @@ async function renderMain(): Promise<void> {
 
 function bindEditSettings(config: ExtensionConfig): void {
   document.getElementById("editSettings")?.addEventListener("click", () => renderSettingsForm(config));
+}
+
+/**
+ * Shows the persistent debug log (see lib/debugLog.ts) directly in the
+ * popup's own UI -- readable anytime, unlike console.log output, which
+ * needs the right DevTools window open at the exact right moment (popup.ts
+ * is transient and closes on blur, offscreen.ts only exists while a
+ * recording is active). This is the one place meant to actually be used
+ * for troubleshooting a real call after the fact.
+ */
+async function renderDebugLog(onBack: () => void): Promise<void> {
+  const entries = await readDebugLog();
+  root.innerHTML = `
+    <h1>Deal Assistant Debug Log</h1>
+    ${entries.length === 0 ? `<p class="muted">Empty -- try Start Recording once, then check back here.</p>` : ""}
+    <pre style="white-space: pre-wrap; word-break: break-word; font-size: 10px; max-height: 300px; overflow-y: auto; background: #1a2d4a; padding: 0.5rem; border-radius: 6px;">${entries
+      .map((e) => e.replace(/</g, "&lt;"))
+      .join("\n")}</pre>
+    <button id="clearLog">Clear</button>
+    <button class="secondary" id="backFromLog">Back</button>
+  `;
+  document.getElementById("clearLog")!.addEventListener("click", async () => {
+    await clearDebugLog();
+    renderDebugLog(onBack);
+  });
+  document.getElementById("backFromLog")!.addEventListener("click", onBack);
 }
 
 renderMain();

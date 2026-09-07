@@ -157,6 +157,20 @@ export function requestRecordingUploadUrl(config: ExtensionConfig, sessionId: st
   });
 }
 
+export type RecordingDestination = { destination: "drive" } | { destination: "local"; reason: string };
+
+/**
+ * A cheap, read-only preview of where a recording will actually be saved
+ * -- shown in the popup BEFORE the rep clicks Start Recording, rather than
+ * them finding out only after Stop. Unlike requestRecordingUploadUrl
+ * above, this never creates a real Drive resumable-upload session (that's
+ * a real Drive-side resource, wasteful to spin up just to render a status
+ * line), it only checks the same preconditions that call would need.
+ */
+export function getRecordingDestination(config: ExtensionConfig, sessionId: string): Promise<RecordingDestination> {
+  return apiFetch<RecordingDestination>(config, `/api/sessions/${sessionId}/recording-destination`);
+}
+
 /** Records a tabCapture recording's Drive file ID against the session, once offscreen.ts's direct-to-Drive upload finishes. */
 export function reportRecordingUploaded(config: ExtensionConfig, sessionId: string, driveFileId: string): Promise<CallSession> {
   return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/recording-uploaded`, {

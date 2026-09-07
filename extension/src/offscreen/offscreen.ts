@@ -22,9 +22,10 @@
  * start. If mic access still isn't available for any reason, this falls
  * back to tab-audio-only rather than failing the whole recording.
  */
-import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest } from "../lib/messages";
+import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest, RecordingEndedRequest } from "../lib/messages";
 import { getConfig } from "../lib/storage";
 import { reportRecordingUploaded } from "../lib/api";
+import { logDebug } from "../lib/debugLog";
 
 let mediaRecorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
@@ -63,10 +64,24 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   } as unknown as MediaStreamConstraints;
 
   captureStream = await navigator.mediaDevices.getUserMedia(constraints);
-  console.log(
-    "[DealAssistant] got captureStream, tracks:",
-    captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
-  );
+  await logDebug(`got captureStream, tracks: ${captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
+
+  // Before mic mixing, closing/leaving the Meet tab ended tabCapture's own
+  // tracks, which auto-stops a MediaRecorder recording them directly --
+  // that's how a real call finished cleanly without the rep needing to
+  // remember to click "Stop Recording". But a MediaStreamAudioDestinationNode's
+  // output track (below) has its OWN independent lifecycle -- it doesn't
+  // end just because the tab audio track feeding into it did, so once mic
+  // mixing was added, MediaRecorder had no track left to notice the tab
+  // was gone, and closing it silently left the recording running forever
+  // with nothing ever finalized. Explicitly stopping on the tab's own
+  // track ending restores the old behavior regardless of mixing.
+  captureStream.getVideoTracks().forEach((track) => {
+    track.onended = () => {
+      console.log("[DealAssistant] tab capture track ended (tab closed/left) -- auto-stopping recorder");
+      stopCapture();
+    };
+  });
 
   // Mix in the rep's own mic (see file-level comment for why tab capture
   // alone isn't enough) -- best-effort: falls back to tab-audio-only if
@@ -74,10 +89,7 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   let recordingStream = captureStream;
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log(
-      "[DealAssistant] got micStream, tracks:",
-      micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
-    );
+    await logDebug(`got micStream, tracks: ${micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
 
     audioContext = new AudioContext();
     const destination = audioContext.createMediaStreamDestination();
@@ -85,14 +97,14 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
     audioContext.createMediaStreamSource(micStream).connect(destination);
 
     recordingStream = new MediaStream([...captureStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
-    console.log("[DealAssistant] mixed mic + tab audio into recordingStream");
+    await logDebug("mixed mic + tab audio into recordingStream");
   } catch (err) {
-    console.log("[DealAssistant] couldn't add mic audio, recording tab audio only:", err instanceof Error ? err.message : String(err));
+    await logDebug(`couldn't add mic audio, recording tab audio only: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(recordingStream, { mimeType: "video/webm;codecs=vp9,opus" });
-  console.log("[DealAssistant] MediaRecorder created, state:", mediaRecorder.state, "mimeType:", mediaRecorder.mimeType);
+  await logDebug(`MediaRecorder created, state: ${mediaRecorder.state}, mimeType: ${mediaRecorder.mimeType}`);
 
   mediaRecorder.ondataavailable = (e) => {
     console.log("[DealAssistant] ondataavailable, chunk size:", e.data.size, "total chunks so far:", recordedChunks.length + 1);
@@ -102,7 +114,16 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
     console.log("[DealAssistant] MediaRecorder error:", e);
   };
   mediaRecorder.onstop = () => {
-    console.log("[DealAssistant] onstop fired, total chunks:", recordedChunks.length, "total bytes:", recordedChunks.reduce((sum, c) => sum + c.size, 0));
+    logDebug(`onstop fired, total chunks: ${recordedChunks.length}, total bytes: ${recordedChunks.reduce((sum, c) => sum + c.size, 0)}`);
+
+    // Tell the background worker recording has ended, regardless of why
+    // (explicit Stop click, or the tab capture track ending on its own) --
+    // without this, an auto-stop left the background's own recordingTabId
+    // state (and so the toolbar badge and the sidebar's status text)
+    // stuck showing "still recording" forever, since nothing else would
+    // ever tell it otherwise.
+    const endedRequest: RecordingEndedRequest = { type: "DEAL_ASSISTANT_RECORDING_ENDED" };
+    chrome.runtime.sendMessage(endedRequest).catch((err) => console.log("[DealAssistant] couldn't notify background of recording end:", err));
 
     // Release the capture BEFORE attempting the download below, not after.
     // A real crash here previously found chrome.downloads is undefined in
@@ -152,20 +173,21 @@ function stopCapture(): void {
  * a recording is never silently lost either way.
  */
 async function saveRecording(blob: Blob, uploadUrl: string | null, sessionId: string | null): Promise<void> {
+  await logDebug(`saveRecording called, blob size: ${blob.size}, uploadUrl: ${uploadUrl ? "present" : "null"}, sessionId: ${sessionId ?? "null"}`);
   if (uploadUrl && sessionId) {
     try {
       const driveFileId = await uploadToDrive(blob, uploadUrl);
-      console.log("[DealAssistant] uploaded to Drive, file id:", driveFileId);
+      await logDebug(`uploaded to Drive, file id: ${driveFileId}`);
       const config = await getConfig();
       if (config) {
         await reportRecordingUploaded(config, sessionId, driveFileId);
-        console.log("[DealAssistant] reported upload to backend, session:", sessionId);
+        await logDebug(`reported upload to backend, session: ${sessionId}`);
       } else {
-        console.log("[DealAssistant] no extension config found -- can't report the upload, but the file is safely in Drive.");
+        await logDebug("no extension config found -- can't report the upload, but the file is safely in Drive.");
       }
       return;
     } catch (err) {
-      console.log("[DealAssistant] Drive upload failed, falling back to local download:", err instanceof Error ? err.message : String(err));
+      await logDebug(`Drive upload failed, falling back to local download: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   downloadLocally(blob);
@@ -187,7 +209,7 @@ async function uploadToDrive(blob: Blob, uploadUrl: string): Promise<string> {
 function downloadLocally(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const filename = `deal-assistant-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-  console.log("[DealAssistant] requesting local download from background:", filename, "blob size:", blob.size);
+  logDebug(`requesting local download from background: ${filename}, blob size: ${blob.size}`);
 
   // chrome.downloads isn't available in an offscreen document -- the
   // background worker does the actual chrome.downloads.download() call
@@ -196,8 +218,8 @@ function downloadLocally(blob: Blob): void {
   const request: DownloadRecordingRequest = { type: "DEAL_ASSISTANT_DOWNLOAD_RECORDING", url, filename };
   chrome.runtime
     .sendMessage(request)
-    .then((response) => console.log("[DealAssistant] download request response:", response))
-    .catch((err) => console.log("[DealAssistant] download request failed:", err))
+    .then((response) => logDebug(`download request response: ${JSON.stringify(response)}`))
+    .catch((err) => logDebug(`download request failed: ${err}`))
     .finally(() => {
       // Revoking immediately risks racing the download actually starting.
       setTimeout(() => URL.revokeObjectURL(url), 30000);
