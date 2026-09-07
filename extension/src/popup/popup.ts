@@ -104,38 +104,30 @@ async function renderMain(): Promise<void> {
       ${
         stateResponse.isThisTabRecording
           ? `<button id="stopTabRecording">Stop Recording</button>`
-          : `<button id="startTabRecording">Start Recording (this device)</button>`
+          : `<button id="startTabRecording">Start Recording (this device)</button>
+             <button class="secondary" id="grantMic">Grant microphone access</button>`
       }
       <button class="secondary" id="editSettings">Edit Settings</button>
     `;
 
+    // A ONE-TIME, entirely separate step from actually starting a
+    // recording -- gating "Start Recording" itself on the mic permission
+    // state (an earlier version of this code did that) turned into a
+    // silent dead end: real-call testing found it kept redirecting to
+    // this tab on every single click without ever actually starting a
+    // recording, meaning querying permission state from this popup is
+    // itself unreliable, the same category of problem as the popup being
+    // unable to show the prompt directly. So "Start Recording" below
+    // always just starts (falling back to tab-audio-only if mic access
+    // isn't there), and granting mic access is now this fully independent
+    // button the rep can click once, whenever, with no bearing on whether
+    // recording itself works.
+    document.getElementById("grantMic")?.addEventListener("click", () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
+    });
+
     document.getElementById("startTabRecording")?.addEventListener("click", async () => {
       const button = document.getElementById("startTabRecording") as HTMLButtonElement;
-
-      // Confirmed via real testing: calling getUserMedia() directly from
-      // this popup shows no permission prompt at all -- Chrome's toolbar
-      // popup is too transient/ephemeral for that UI to anchor to, so the
-      // call just silently does nothing (not even a denial). Checking the
-      // CURRENT permission state instead, and opening a real, persistent
-      // tab (permissions.ts) to actually secure it if it isn't granted yet
-      // -- once granted there, it's granted for the extension's origin
-      // everywhere, including the offscreen document's own
-      // getUserMedia({audio:true}) call during the real recording (see
-      // offscreen.ts). Recording still proceeds tab-audio-only if the rep
-      // never grants it -- this never blocks on it.
-      const micStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
-      if (micStatus.state !== "granted") {
-        chrome.tabs.create({ url: chrome.runtime.getURL("dist/permissions.html") });
-        root.innerHTML = `
-          <h1>Deal Assistant</h1>
-          <p class="status">A new tab just opened to grant microphone access.</p>
-          <p class="muted">Allow it there, then come back and click Start Recording again. Recording still works without it, but won't include your own voice -- only the other participants.</p>
-          <button id="backAfterMicPrompt">Back</button>
-        `;
-        document.getElementById("backAfterMicPrompt")!.addEventListener("click", renderMain);
-        return;
-      }
-
       button.disabled = true;
       button.textContent = "Starting…";
 
