@@ -1,6 +1,7 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
 import { createSession, requestRecordingUploadUrl, ApiError } from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
+import { logDebug, readDebugLog, clearDebugLog } from "../lib/debugLog";
 import type { ExtensionConfig } from "../lib/storage";
 import type {
   StartTabRecordingRequest,
@@ -108,7 +109,10 @@ async function renderMain(): Promise<void> {
              <button class="secondary" id="grantMic">Grant microphone access</button>`
       }
       <button class="secondary" id="editSettings">Edit Settings</button>
+      <button class="secondary" id="viewDebugLog">View debug log</button>
     `;
+
+    document.getElementById("viewDebugLog")?.addEventListener("click", () => renderDebugLog(renderMain));
 
     // A ONE-TIME, entirely separate step from actually starting a
     // recording -- gating "Start Recording" itself on the mic permission
@@ -138,8 +142,9 @@ async function renderMain(): Promise<void> {
       let uploadUrl: string | null = null;
       try {
         uploadUrl = (await requestRecordingUploadUrl(config, sessionId)).uploadUrl;
+        await logDebug(`got Drive upload URL for session ${sessionId}`);
       } catch (err) {
-        console.log("[DealAssistant] couldn't get a Drive upload URL, will fall back to local download:", err);
+        await logDebug(`couldn't get a Drive upload URL, will fall back to local download: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       const response: TabRecordingResponse = await chrome.runtime.sendMessage({
@@ -198,6 +203,32 @@ async function renderMain(): Promise<void> {
 
 function bindEditSettings(config: ExtensionConfig): void {
   document.getElementById("editSettings")?.addEventListener("click", () => renderSettingsForm(config));
+}
+
+/**
+ * Shows the persistent debug log (see lib/debugLog.ts) directly in the
+ * popup's own UI -- readable anytime, unlike console.log output, which
+ * needs the right DevTools window open at the exact right moment (popup.ts
+ * is transient and closes on blur, offscreen.ts only exists while a
+ * recording is active). This is the one place meant to actually be used
+ * for troubleshooting a real call after the fact.
+ */
+async function renderDebugLog(onBack: () => void): Promise<void> {
+  const entries = await readDebugLog();
+  root.innerHTML = `
+    <h1>Deal Assistant Debug Log</h1>
+    ${entries.length === 0 ? `<p class="muted">Empty -- try Start Recording once, then check back here.</p>` : ""}
+    <pre style="white-space: pre-wrap; word-break: break-word; font-size: 10px; max-height: 300px; overflow-y: auto; background: #1a2d4a; padding: 0.5rem; border-radius: 6px;">${entries
+      .map((e) => e.replace(/</g, "&lt;"))
+      .join("\n")}</pre>
+    <button id="clearLog">Clear</button>
+    <button class="secondary" id="backFromLog">Back</button>
+  `;
+  document.getElementById("clearLog")!.addEventListener("click", async () => {
+    await clearDebugLog();
+    renderDebugLog(onBack);
+  });
+  document.getElementById("backFromLog")!.addEventListener("click", onBack);
 }
 
 renderMain();

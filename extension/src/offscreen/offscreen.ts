@@ -25,6 +25,7 @@
 import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest, RecordingEndedRequest } from "../lib/messages";
 import { getConfig } from "../lib/storage";
 import { reportRecordingUploaded } from "../lib/api";
+import { logDebug } from "../lib/debugLog";
 
 let mediaRecorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
@@ -63,10 +64,7 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   } as unknown as MediaStreamConstraints;
 
   captureStream = await navigator.mediaDevices.getUserMedia(constraints);
-  console.log(
-    "[DealAssistant] got captureStream, tracks:",
-    captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
-  );
+  await logDebug(`got captureStream, tracks: ${captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
 
   // Before mic mixing, closing/leaving the Meet tab ended tabCapture's own
   // tracks, which auto-stops a MediaRecorder recording them directly --
@@ -91,10 +89,7 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   let recordingStream = captureStream;
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log(
-      "[DealAssistant] got micStream, tracks:",
-      micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`)
-    );
+    await logDebug(`got micStream, tracks: ${micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
 
     audioContext = new AudioContext();
     const destination = audioContext.createMediaStreamDestination();
@@ -102,14 +97,14 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
     audioContext.createMediaStreamSource(micStream).connect(destination);
 
     recordingStream = new MediaStream([...captureStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
-    console.log("[DealAssistant] mixed mic + tab audio into recordingStream");
+    await logDebug("mixed mic + tab audio into recordingStream");
   } catch (err) {
-    console.log("[DealAssistant] couldn't add mic audio, recording tab audio only:", err instanceof Error ? err.message : String(err));
+    await logDebug(`couldn't add mic audio, recording tab audio only: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(recordingStream, { mimeType: "video/webm;codecs=vp9,opus" });
-  console.log("[DealAssistant] MediaRecorder created, state:", mediaRecorder.state, "mimeType:", mediaRecorder.mimeType);
+  await logDebug(`MediaRecorder created, state: ${mediaRecorder.state}, mimeType: ${mediaRecorder.mimeType}`);
 
   mediaRecorder.ondataavailable = (e) => {
     console.log("[DealAssistant] ondataavailable, chunk size:", e.data.size, "total chunks so far:", recordedChunks.length + 1);
@@ -119,7 +114,7 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
     console.log("[DealAssistant] MediaRecorder error:", e);
   };
   mediaRecorder.onstop = () => {
-    console.log("[DealAssistant] onstop fired, total chunks:", recordedChunks.length, "total bytes:", recordedChunks.reduce((sum, c) => sum + c.size, 0));
+    logDebug(`onstop fired, total chunks: ${recordedChunks.length}, total bytes: ${recordedChunks.reduce((sum, c) => sum + c.size, 0)}`);
 
     // Tell the background worker recording has ended, regardless of why
     // (explicit Stop click, or the tab capture track ending on its own) --
@@ -178,20 +173,21 @@ function stopCapture(): void {
  * a recording is never silently lost either way.
  */
 async function saveRecording(blob: Blob, uploadUrl: string | null, sessionId: string | null): Promise<void> {
+  await logDebug(`saveRecording called, blob size: ${blob.size}, uploadUrl: ${uploadUrl ? "present" : "null"}, sessionId: ${sessionId ?? "null"}`);
   if (uploadUrl && sessionId) {
     try {
       const driveFileId = await uploadToDrive(blob, uploadUrl);
-      console.log("[DealAssistant] uploaded to Drive, file id:", driveFileId);
+      await logDebug(`uploaded to Drive, file id: ${driveFileId}`);
       const config = await getConfig();
       if (config) {
         await reportRecordingUploaded(config, sessionId, driveFileId);
-        console.log("[DealAssistant] reported upload to backend, session:", sessionId);
+        await logDebug(`reported upload to backend, session: ${sessionId}`);
       } else {
-        console.log("[DealAssistant] no extension config found -- can't report the upload, but the file is safely in Drive.");
+        await logDebug("no extension config found -- can't report the upload, but the file is safely in Drive.");
       }
       return;
     } catch (err) {
-      console.log("[DealAssistant] Drive upload failed, falling back to local download:", err instanceof Error ? err.message : String(err));
+      await logDebug(`Drive upload failed, falling back to local download: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   downloadLocally(blob);
@@ -213,7 +209,7 @@ async function uploadToDrive(blob: Blob, uploadUrl: string): Promise<string> {
 function downloadLocally(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const filename = `deal-assistant-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-  console.log("[DealAssistant] requesting local download from background:", filename, "blob size:", blob.size);
+  logDebug(`requesting local download from background: ${filename}, blob size: ${blob.size}`);
 
   // chrome.downloads isn't available in an offscreen document -- the
   // background worker does the actual chrome.downloads.download() call
@@ -222,8 +218,8 @@ function downloadLocally(blob: Blob): void {
   const request: DownloadRecordingRequest = { type: "DEAL_ASSISTANT_DOWNLOAD_RECORDING", url, filename };
   chrome.runtime
     .sendMessage(request)
-    .then((response) => console.log("[DealAssistant] download request response:", response))
-    .catch((err) => console.log("[DealAssistant] download request failed:", err))
+    .then((response) => logDebug(`download request response: ${JSON.stringify(response)}`))
+    .catch((err) => logDebug(`download request failed: ${err}`))
     .finally(() => {
       // Revoking immediately risks racing the download actually starting.
       setTimeout(() => URL.revokeObjectURL(url), 30000);
