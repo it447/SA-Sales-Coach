@@ -20,6 +20,7 @@ import type {
   TabRecordingResponse,
   GetTabRecordingStateRequest,
   GetTabRecordingStateResponse,
+  DownloadRecordingRequest,
 } from "../lib/messages";
 import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
 
@@ -27,7 +28,12 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log("Deal Assistant installed.");
 });
 
-type IncomingRequest = ApiFetchRequest | StartTabRecordingRequest | StopTabRecordingRequest | GetTabRecordingStateRequest;
+type IncomingRequest =
+  | ApiFetchRequest
+  | StartTabRecordingRequest
+  | StopTabRecordingRequest
+  | GetTabRecordingStateRequest
+  | DownloadRecordingRequest;
 
 chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResponse) => {
   if (message?.type === "DEAL_ASSISTANT_API_FETCH") {
@@ -50,8 +56,39 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
       .then(sendResponse);
     return true;
   }
+  if (message?.type === "DEAL_ASSISTANT_DOWNLOAD_RECORDING") {
+    downloadRecording(message).then(sendResponse);
+    return true;
+  }
   return false;
 });
+
+/**
+ * chrome.downloads is unavailable inside an offscreen document (confirmed
+ * via a real "Cannot read properties of undefined (reading 'download')"
+ * crash there) even though offscreen documents otherwise behave like a
+ * normal extension page -- so the offscreen document builds the
+ * recording and its blob: URL, and this background worker (which does
+ * have full API access) does the actual save.
+ */
+async function downloadRecording(request: DownloadRecordingRequest): Promise<TabRecordingResponse> {
+  try {
+    const downloadId = await new Promise<number>((resolve, reject) => {
+      chrome.downloads.download({ url: request.url, filename: request.filename, saveAs: false }, (id) => {
+        if (chrome.runtime.lastError || id === undefined) {
+          reject(new Error(chrome.runtime.lastError?.message ?? "Chrome didn't return a download ID."));
+        } else {
+          resolve(id);
+        }
+      });
+    });
+    console.log("[DealAssistant] download started, id:", downloadId);
+    return { success: true };
+  } catch (err) {
+    console.log("[DealAssistant] download failed:", err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 const OFFSCREEN_DOCUMENT_PATH = "dist/offscreen.html";
 

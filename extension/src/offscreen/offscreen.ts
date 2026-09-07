@@ -13,7 +13,7 @@
  * The rep's own side of the conversation is missing from this recording
  * until a later pass mixes in a separate mic capture via the Web Audio API.
  */
-import type { OffscreenStartRequest, OffscreenStopRequest } from "../lib/messages";
+import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest } from "../lib/messages";
 
 let mediaRecorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
@@ -64,24 +64,43 @@ async function startCapture(streamId: string): Promise<void> {
   };
   mediaRecorder.onstop = () => {
     console.log("[DealAssistant] onstop fired, total chunks:", recordedChunks.length, "total bytes:", recordedChunks.reduce((sum, c) => sum + c.size, 0));
-    const blob = new Blob(recordedChunks, { type: "video/webm" });
-    const url = URL.createObjectURL(blob);
-    const filename = `deal-assistant-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
-    console.log("[DealAssistant] starting download:", filename, "blob size:", blob.size);
-    chrome.downloads.download({ url, filename, saveAs: false }, (downloadId) => {
-      if (chrome.runtime.lastError) {
-        console.log("[DealAssistant] downloads.download failed:", chrome.runtime.lastError.message);
-      } else {
-        console.log("[DealAssistant] downloads.download succeeded, downloadId:", downloadId);
-      }
-      // Revoking immediately risks racing the download actually starting --
-      // Phase 1 only; Phase 2 uploads the blob directly instead of ever
-      // creating a local download, so this workaround goes away then.
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    });
+
+    // Release the capture BEFORE attempting the download below, not after.
+    // A real crash here previously found chrome.downloads is undefined in
+    // an offscreen document's context (it's a background-worker-only API,
+    // confirmed via a genuine "Cannot read properties of undefined
+    // (reading 'download')" error) -- that exception aborted this handler
+    // partway through, before these lines ever ran, leaving the tab's
+    // capture stream permanently "active" from Chrome's point of view
+    // (blocking every subsequent Start Recording attempt on that tab with
+    // "Cannot capture a tab with an active stream" until the whole
+    // extension was reloaded). Ordering cleanup first means a failure in
+    // the download step, whatever the cause, can no longer strand the tab
+    // like that again.
     captureStream?.getTracks().forEach((t) => t.stop());
     captureStream = null;
     mediaRecorder = null;
+
+    const blob = new Blob(recordedChunks, { type: "video/webm" });
+    const url = URL.createObjectURL(blob);
+    const filename = `deal-assistant-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+    console.log("[DealAssistant] requesting download from background:", filename, "blob size:", blob.size);
+
+    // chrome.downloads isn't available in an offscreen document -- the
+    // background worker does the actual chrome.downloads.download() call
+    // (see messages.ts). The blob: URL is still fetchable from there since
+    // both share the same chrome-extension:// origin.
+    const request: DownloadRecordingRequest = { type: "DEAL_ASSISTANT_DOWNLOAD_RECORDING", url, filename };
+    chrome.runtime
+      .sendMessage(request)
+      .then((response) => console.log("[DealAssistant] download request response:", response))
+      .catch((err) => console.log("[DealAssistant] download request failed:", err))
+      .finally(() => {
+        // Revoking immediately risks racing the download actually starting --
+        // Phase 1 only; Phase 2 uploads the blob directly instead of ever
+        // creating a local download, so this workaround goes away then.
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      });
   };
   // 1s timeslice: periodic dataavailable events instead of one giant blob
   // only at the very end, both so a crash mid-call doesn't lose everything

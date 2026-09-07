@@ -66,3 +66,22 @@ export interface OffscreenStartRequest {
 export interface OffscreenStopRequest {
   type: "DEAL_ASSISTANT_OFFSCREEN_STOP";
 }
+
+/**
+ * Offscreen document -> background service worker: actually save the
+ * finished recording. chrome.downloads is NOT available inside an
+ * offscreen document (confirmed via a real "Cannot read properties of
+ * undefined (reading 'download')" crash -- chrome.downloads itself is
+ * undefined there) even though offscreen documents otherwise behave like
+ * a normal extension page; the background worker has the full API
+ * surface, so it does the actual download. url is a blob: URL created in
+ * the offscreen document -- still fetchable from the background worker
+ * since both share the same chrome-extension:// origin, as long as the
+ * offscreen document (which holds the only reference keeping it alive)
+ * hasn't been torn down yet.
+ */
+export interface DownloadRecordingRequest {
+  type: "DEAL_ASSISTANT_DOWNLOAD_RECORDING";
+  url: string;
+  filename: string;
+}
