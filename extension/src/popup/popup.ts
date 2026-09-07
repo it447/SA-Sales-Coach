@@ -1,5 +1,5 @@
 import { getConfig, setConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
-import { createSession, requestRecordingUploadUrl, ApiError } from "../lib/api";
+import { createSession, requestRecordingUploadUrl, getRecordingDestination, ApiError } from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { logDebug, readDebugLog, clearDebugLog } from "../lib/debugLog";
 import type { ExtensionConfig } from "../lib/storage";
@@ -95,6 +95,22 @@ async function renderMain(): Promise<void> {
       type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE",
     } satisfies GetTabRecordingStateRequest);
 
+    // Shown BEFORE the rep clicks Start Recording, not just after --
+    // real-call testing found "where did it actually save to" was only
+    // ever discoverable after the fact (or not at all, without digging
+    // through a debug log), which is exactly backwards for something the
+    // rep might want to fix (e.g. connect Google) before the call starts.
+    let destinationHtml = "";
+    try {
+      const destination = await getRecordingDestination(config, sessionId);
+      destinationHtml =
+        destination.destination === "drive"
+          ? `<p class="muted">📁 Will save to: Google Drive (shared folder)</p>`
+          : `<p class="muted">💾 Will save to: local Downloads — ${destination.reason}</p>`;
+    } catch (err) {
+      destinationHtml = `<p class="muted">Couldn't check where recordings will save: ${err instanceof Error ? err.message : String(err)}</p>`;
+    }
+
     root.innerHTML = `
       <h1>Deal Assistant</h1>
       <p class="status">Session active for this call.</p>
@@ -102,6 +118,7 @@ async function renderMain(): Promise<void> {
       <p class="muted">The coaching sidebar should be visible on the right side of your Meet tab.</p>
       <hr />
       <p class="muted">Recording works regardless of who organized the call -- captures this tab's audio/video directly (must be started/stopped from here, not the sidebar, since Chrome only allows tab capture right after opening this popup).</p>
+      ${destinationHtml}
       ${
         stateResponse.isThisTabRecording
           ? `<button id="stopTabRecording">Stop Recording</button>`
