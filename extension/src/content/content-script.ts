@@ -51,8 +51,6 @@ const sidebar = new Sidebar({
       const roles = session.roles.map((r) => (r.id === role.id ? role : r));
       return api.saveRoles(config, sessionId, roles).then(applySession).catch(showError);
     }),
-  onToggleRecording: (enabled) =>
-    withSession((config, sessionId) => api.setRecording(config, sessionId, enabled).then(applySession).catch(showError)),
 });
 
 /**

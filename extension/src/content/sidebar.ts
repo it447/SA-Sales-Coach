@@ -7,7 +7,6 @@ export interface SidebarCallbacks {
   onGenerateJds: () => void;
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
-  onToggleRecording: (enabled: boolean) => void;
 }
 
 export type TabRecordingState = "idle" | "recording";
@@ -59,9 +58,7 @@ export class Sidebar {
   // config loads, so a generated JD can link out to the full dashboard
   // view instead of only the cramped inline sidebar preview.
   private dashboardBaseUrl: string | null = null;
-  // Independent of recordingEnabled/renderRecordingControl above (that's
-  // Meet's own native recording, gated by the organizer-only API) -- this
-  // is a READ-ONLY reflection of the tabCapture-based recording's actual
+  // A READ-ONLY reflection of the tabCapture-based recording's actual
   // state (see content-script.ts, which polls the background worker for
   // it). It can't be started/stopped from here: Chrome only grants
   // tabCapture access right after the user invokes the extension via its
@@ -189,8 +186,6 @@ export class Sidebar {
     } else if (action === "resolve-flag") {
       const index = Number(target.dataset.flagIndex);
       this.callbacks.onResolveFlag(index);
-    } else if (action === "toggle-recording") {
-      this.callbacks.onToggleRecording(target.dataset.enabled === "true");
     } else if (action === "edit-role") {
       this.editingRoleId = target.dataset.roleId ?? null;
       this.render();
@@ -332,36 +327,12 @@ export class Sidebar {
     `;
   }
 
-  // Only meaningfully changes anything before the rep clicks "Join now" in
-  // Meet's own UI — Google's auto-recording setting is checked once, at
-  // join time, and there's no API to start/stop an already-running
-  // recording. Still shown for the whole call so the rep always sees the
-  // current state, even though clicking it mid-call does nothing.
-  private renderRecordingControl(s: CallSession): string {
-    if (s.recordingEnabled === true) {
-      return `
-        <span style="color:${colors.redAccent}" title="Only takes effect before you click Join in Meet">● Recording</span>
-        <button class="secondary" data-action="toggle-recording" data-enabled="false" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Turn off</button>
-      `;
-    }
-    if (s.recordingEnabled === false) {
-      return `
-        <span class="muted" title="Only takes effect before you click Join in Meet">Recording is off</span>
-        <button class="secondary" data-action="toggle-recording" data-enabled="true" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Turn on</button>
-      `;
-    }
-    return `
-      <span class="muted" title="Connect your Google account from the extension popup first">Recording not connected</span>
-      <button class="secondary" data-action="toggle-recording" data-enabled="true" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Enable</button>
-    `;
-  }
-
-  // Independent of renderRecordingControl above -- this is the
-  // tabCapture-based recording, which (unlike Meet's native recording via
-  // the organizer-only API) works no matter who organized the call.
-  // Read-only here: it's started/stopped from the extension's popup (see
-  // popup.ts for why), so this just reflects whatever's actually
-  // happening and points the rep there.
+  // The tabCapture-based recording, which (unlike Meet's old native
+  // recording via the organizer-only API, fully removed once this
+  // replaced it) works no matter who organized the call. Read-only here:
+  // it's started/stopped from the extension's popup (see popup.ts for
+  // why), so this just reflects whatever's actually happening and points
+  // the rep there.
   private renderTabRecordingControl(): string {
     if (this.tabRecordingState === "recording") {
       return `<span style="color:${colors.redAccent}">● Recording this tab</span> <span class="muted">— stop it from the toolbar icon</span>`;
@@ -373,7 +344,6 @@ export class Sidebar {
     return `
       <div class="card">
         <span class="badge" style="background:${colors.orange}22;color:${colors.orange};border:1px solid ${colors.orange}">${escapeHtml(s.status)}</span>
-        <div style="margin-top:0.5rem">${this.renderRecordingControl(s)}</div>
         <div style="margin-top:0.5rem">${this.renderTabRecordingControl()}</div>
       </div>
       ${this.renderCallStructure(s)}
