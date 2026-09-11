@@ -269,6 +269,66 @@ export async function extractScope(
   return toolUse.input as ExtractResult;
 }
 
+/**
+ * On-demand only (see quoting.ts's runQuote `suggestMatches` option) —
+ * NEVER called from the live-call extraction loop, unlike extractScope
+ * above. A client's exact wording rarely matches our pricing catalog's
+ * title verbatim ("growth marketer" vs. "Growth Marketing Manager"), and a
+ * plain string-similarity match turned out to be unsafe for this: testing
+ * showed "sales manager" scoring HIGHER against "Sales Operations
+ * Manager" (a real, differently-priced role) than against its own correct
+ * match, since shared words dominate simple similarity metrics regardless
+ * of whether a distinguishing word is missing. Claude actually understands
+ * that distinction, so this asks it directly instead — but only when a
+ * rep clicks "Calculate Price" and hits an unpriced role, not every
+ * extraction tick, since a wrong SILENT match would misquote a real deal.
+ * The rep still has to explicitly confirm the suggestion (see sidebar.ts).
+ */
+const MATCH_TOOL: Anthropic.Tool = {
+  name: "match_title",
+  description: "Pick the closest real job title from the given list that represents the same role as the client's title, or null if none genuinely do.",
+  input_schema: {
+    type: "object",
+    properties: {
+      match: {
+        type: ["string", "null"],
+        description:
+          "Must be copied EXACTLY (verbatim) from the candidate list, or null. Only pick a title if it's genuinely the same role, just phrased differently -- e.g. 'growth marketer' -> 'Growth Marketing Manager' is fine, but 'Sales Manager' -> 'Sales Operations Manager' is NOT (that's a distinct, differently-scoped role) even though the words overlap. When in doubt, pick null rather than guess.",
+      },
+    },
+    required: ["match"],
+  },
+};
+
+export async function suggestPricingTitleMatch(clientTitle: string, candidateTitles: string[]): Promise<string | null> {
+  if (candidateTitles.length === 0) return null;
+
+  const message = await getClient().messages.create({
+    model: EXTRACTION_MODEL,
+    max_tokens: 200,
+    system: "You match a client's own job-title wording to the closest equivalent title in a fixed internal catalog, for a sales-scoping tool.",
+    tools: [MATCH_TOOL],
+    tool_choice: { type: "tool", name: "match_title" },
+    messages: [
+      {
+        role: "user",
+        content: `Client's stated role title: "${clientTitle}"\n\nCandidate catalog titles (same seniority level):\n${candidateTitles.map((t) => `- ${t}`).join("\n")}`,
+      },
+    ],
+  });
+
+  const toolUse = message.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
+  if (!toolUse) return null;
+
+  const { match } = toolUse.input as { match: string | null };
+  // Belt-and-suspenders: only trust it if Claude actually copied a real
+  // candidate verbatim, per the schema instruction -- never surface a
+  // hallucinated title as if it were a real catalog match.
+  return match && candidateTitles.includes(match) ? match : null;
+}
+
 export async function generateJobDescription(role: RoleScope): Promise<string> {
   const template = readConfigDoc("jd-template.md");
 

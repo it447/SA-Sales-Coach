@@ -233,8 +233,20 @@ export interface QuoteState {
   /** How many of the call's roles actually contributed to finalPrice — less than totalRoleCount means this is a partial quote. */
   pricedRoleCount: number;
   totalRoleCount: number;
-  /** Every role that isn't priced yet, with a plain-English reason why — surfaced next to "Calculate Price" so clicking it with something missing doesn't just look like nothing happened. */
-  unpricedRoles: { roleId: string; roleTitle: string | null; reason: string }[];
+  /**
+   * Every role that isn't priced yet, with a plain-English reason why —
+   * surfaced next to "Calculate Price" so clicking it with something
+   * missing doesn't just look like nothing happened. suggestedMatch is only
+   * populated by a manual "Calculate Price" click (see quoting.ts's
+   * runQuote suggestMatches option) -- the client's exact wording rarely
+   * matches our catalog's title verbatim (e.g. "growth marketer" vs.
+   * "Growth Marketing Manager"), so Claude is asked, on demand, to name the
+   * closest real catalog title at that seniority, or null if nothing
+   * genuinely fits. Never applied automatically -- the rep has to confirm
+   * it (see sidebar.ts's confirm-role-match action) since a wrong silent
+   * match would misquote a real deal's price.
+   */
+  unpricedRoles: { roleId: string; roleTitle: string | null; reason: string; suggestedMatch?: string | null }[];
   /**
    * What a comparable USA hire would typically cost, for the "client
    * savings" comparison. null unless every role has a usaBenchmarkRole

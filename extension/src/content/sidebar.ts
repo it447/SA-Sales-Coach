@@ -7,6 +7,7 @@ export interface SidebarCallbacks {
   onGenerateJds: () => void;
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
+  onConfirmRoleMatch: (roleId: string, matchedTitle: string) => void;
 }
 
 export type TabRecordingState = "idle" | "recording";
@@ -107,22 +108,29 @@ export class Sidebar {
     this.render();
   }
 
-  update(session: CallSession): void {
-    this.session = session;
-    this.busy = false;
-    // Skip re-rendering while a role is being edited — this fires every
-    // ~2s from the live poll loop, and rebuilding the whole panel via
-    // innerHTML while the rep is mid-edit destroys the input fields
-    // (and whatever they'd already typed) constantly, making the edit
-    // form look completely broken. The latest session data still lands
-    // in this.session and shows as soon as the edit is saved/canceled.
+  // Rebuilding the whole panel via innerHTML while the rep is mid-edit
+  // destroys the input fields (and whatever they'd already typed),
+  // making the edit form look broken -- e.g. clicking into a field then
+  // having it revert/clear seconds later. Every setter that fires
+  // automatically (on a poll/tick timer, not a direct user action on
+  // that same edit form) needs this same guard, not just update() --
+  // setTabRecordingState() alone fires every 2s from pollTabRecordingState,
+  // so without it a re-render was essentially guaranteed within a couple
+  // of seconds of starting to type.
+  private renderUnlessEditing(): void {
     if (this.editingRoleId !== null) return;
     this.render();
   }
 
+  update(session: CallSession): void {
+    this.session = session;
+    this.busy = false;
+    this.renderUnlessEditing();
+  }
+
   setObjectionSuggestions(suggestions: string[]): void {
     this.objectionSuggestions = suggestions;
-    this.render();
+    this.renderUnlessEditing();
   }
 
   setError(message: string | null): void {
@@ -144,12 +152,12 @@ export class Sidebar {
 
   setTabRecordingState(state: TabRecordingState): void {
     this.tabRecordingState = state;
-    this.render();
+    this.renderUnlessEditing();
   }
 
   setDashboardBaseUrl(url: string): void {
     this.dashboardBaseUrl = url;
-    this.render();
+    this.renderUnlessEditing();
   }
 
   hasSession(): boolean {
@@ -215,6 +223,11 @@ export class Sidebar {
       };
       this.editingRoleId = null;
       this.callbacks.onSaveRole(updated);
+    } else if (action === "confirm-role-match") {
+      const roleId = target.dataset.roleId;
+      const match = target.dataset.match;
+      if (!roleId || !match) return;
+      this.callbacks.onConfirmRoleMatch(roleId, match);
     } else if (action === "view-jd") {
       const roleId = target.dataset.roleId ?? null;
       this.expandedJdRoleId = this.expandedJdRoleId === roleId ? null : roleId;
@@ -507,12 +520,24 @@ export class Sidebar {
     } = s.quote;
     const isPartial = typeof pricedRoleCount === "number" && pricedRoleCount > 0 && pricedRoleCount < totalRoleCount;
     const unpricedList = Array.isArray(unpricedRoles) ? unpricedRoles : [];
+    // suggestedMatch only ever comes from a manual "Calculate Price" click
+    // (see quoting.ts) — never applied automatically, since a wrong silent
+    // match would misquote a real deal. The rep has to explicitly confirm.
     const unpricedNote =
       unpricedList.length > 0
         ? `<div class="banner" style="margin-top:0.4rem">
              <strong>Why ${finalPrice === null ? "nothing's" : "some roles aren't"} priced yet:</strong>
              <ul style="margin:0.3rem 0 0;padding-left:1.1rem">
-               ${unpricedList.map((r) => `<li>${escapeHtml(r.roleTitle ?? "Untitled role")}: ${escapeHtml(r.reason)}</li>`).join("")}
+               ${unpricedList
+                 .map(
+                   (r) => `<li>${escapeHtml(r.roleTitle ?? "Untitled role")}: ${escapeHtml(r.reason)}${
+                     r.suggestedMatch
+                       ? ` <br/>Did you mean <strong>${escapeHtml(r.suggestedMatch)}</strong>?
+                           <button class="secondary" data-action="confirm-role-match" data-role-id="${r.roleId}" data-match="${escapeAttr(r.suggestedMatch)}" style="padding:0.1rem 0.4rem;margin-left:0.3rem">Yes, use that</button>`
+                       : ""
+                   }</li>`
+                 )
+                 .join("")}
              </ul>
            </div>`
         : "";

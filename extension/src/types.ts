@@ -141,7 +141,8 @@ export interface CallSession {
     atClientBudget: AtClientBudget | null;
     pricedRoleCount: number;
     totalRoleCount: number;
-    unpricedRoles: { roleId: string; roleTitle: string | null; reason: string }[];
+    /** suggestedMatch (a real catalog title, or null) is only populated after a manual "Calculate Price" click — see sidebar.ts's confirm-role-match action. */
+    unpricedRoles: { roleId: string; roleTitle: string | null; reason: string; suggestedMatch?: string | null }[];
     usaSalary: number | null;
     monthlySavings: number | null;
     annualSavings: number | null;

@@ -51,6 +51,17 @@ const sidebar = new Sidebar({
       const roles = session.roles.map((r) => (r.id === role.id ? role : r));
       return api.saveRoles(config, sessionId, roles).then(applySession).catch(showError);
     }),
+  // Sets this role's title to the catalog title Claude suggested (see
+  // quoting.ts's addSuggestedMatches), then re-runs the quote so it prices
+  // immediately -- the title now matches pricing_data exactly, so this is
+  // just the normal exact-match path, no further AI involved.
+  onConfirmRoleMatch: (roleId, matchedTitle) =>
+    withSession(async (config, sessionId) => {
+      const session = await api.getSession(config, sessionId);
+      const roles = session.roles.map((r) => (r.id === roleId ? { ...r, title: matchedTitle } : r));
+      await api.saveRoles(config, sessionId, roles);
+      return api.runQuote(config, sessionId).then(applySession).catch(showError);
+    }),
 });
 
 /**
