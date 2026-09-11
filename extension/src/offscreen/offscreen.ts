@@ -95,8 +95,18 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
 
       audioContext = new AudioContext();
       const destination = audioContext.createMediaStreamDestination();
-      audioContext.createMediaStreamSource(captureStream).connect(destination);
+      const tabAudioSource = audioContext.createMediaStreamSource(captureStream);
+      tabAudioSource.connect(destination);
       audioContext.createMediaStreamSource(micStream).connect(destination);
+
+      // chrome.tabCapture redirects a captured tab's audio away from the
+      // speakers by default -- once consumed here, the rep stops hearing
+      // anything from the call locally (confirmed on a real call: the
+      // other participant could hear the rep fine, but the rep couldn't
+      // hear them at all once recording started). Connecting the same
+      // source to the AudioContext's own destination plays it back
+      // normally in addition to feeding the recording.
+      tabAudioSource.connect(audioContext.destination);
 
       recordingStream = new MediaStream([...captureStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
       await logDebug("mixed mic + tab audio into recordingStream");
