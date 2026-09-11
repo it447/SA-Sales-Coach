@@ -13,12 +13,29 @@
 const DEBUG_LOG_KEY = "dealAssistantDebugLog";
 const MAX_ENTRIES = 100;
 
-export async function logDebug(message: string): Promise<void> {
-  console.log(`[DealAssistant] ${message}`);
+async function appendEntry(message: string): Promise<void> {
   const result = await chrome.storage.local.get(DEBUG_LOG_KEY);
   const entries: string[] = result[DEBUG_LOG_KEY] ?? [];
   entries.push(`${new Date().toISOString()} ${message}`);
   await chrome.storage.local.set({ [DEBUG_LOG_KEY]: entries.slice(-MAX_ENTRIES) });
+}
+
+/**
+ * chrome.storage is undefined inside an offscreen document (confirmed via a
+ * real crash there -- see messages.ts's LogDebugRequest) even though
+ * offscreen documents otherwise behave like a normal extension page. Where
+ * it's missing, relay the entry to the background service worker instead,
+ * which does have it.
+ */
+export async function logDebug(message: string): Promise<void> {
+  console.log(`[DealAssistant] ${message}`);
+  if (chrome.storage?.local) {
+    await appendEntry(message);
+    return;
+  }
+  await chrome.runtime
+    .sendMessage({ type: "DEAL_ASSISTANT_LOG_DEBUG", message })
+    .catch((err) => console.log("[DealAssistant] couldn't relay debug log entry to background:", err));
 }
 
 export async function readDebugLog(): Promise<string[]> {

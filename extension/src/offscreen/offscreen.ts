@@ -64,47 +64,65 @@ async function startCapture(streamId: string, uploadUrl: string | null, sessionI
   } as unknown as MediaStreamConstraints;
 
   captureStream = await navigator.mediaDevices.getUserMedia(constraints);
-  await logDebug(`got captureStream, tracks: ${captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
 
-  // Before mic mixing, closing/leaving the Meet tab ended tabCapture's own
-  // tracks, which auto-stops a MediaRecorder recording them directly --
-  // that's how a real call finished cleanly without the rep needing to
-  // remember to click "Stop Recording". But a MediaStreamAudioDestinationNode's
-  // output track (below) has its OWN independent lifecycle -- it doesn't
-  // end just because the tab audio track feeding into it did, so once mic
-  // mixing was added, MediaRecorder had no track left to notice the tab
-  // was gone, and closing it silently left the recording running forever
-  // with nothing ever finalized. Explicitly stopping on the tab's own
-  // track ending restores the old behavior regardless of mixing.
-  captureStream.getVideoTracks().forEach((track) => {
-    track.onended = () => {
-      console.log("[DealAssistant] tab capture track ended (tab closed/left) -- auto-stopping recorder");
-      stopCapture();
-    };
-  });
-
-  // Mix in the rep's own mic (see file-level comment for why tab capture
-  // alone isn't enough) -- best-effort: falls back to tab-audio-only if
-  // this fails for any reason, rather than failing the whole recording.
-  let recordingStream = captureStream;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    await logDebug(`got micStream, tracks: ${micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
+    await logDebug(`got captureStream, tracks: ${captureStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
 
-    audioContext = new AudioContext();
-    const destination = audioContext.createMediaStreamDestination();
-    audioContext.createMediaStreamSource(captureStream).connect(destination);
-    audioContext.createMediaStreamSource(micStream).connect(destination);
+    // Before mic mixing, closing/leaving the Meet tab ended tabCapture's own
+    // tracks, which auto-stops a MediaRecorder recording them directly --
+    // that's how a real call finished cleanly without the rep needing to
+    // remember to click "Stop Recording". But a MediaStreamAudioDestinationNode's
+    // output track (below) has its OWN independent lifecycle -- it doesn't
+    // end just because the tab audio track feeding into it did, so once mic
+    // mixing was added, MediaRecorder had no track left to notice the tab
+    // was gone, and closing it silently left the recording running forever
+    // with nothing ever finalized. Explicitly stopping on the tab's own
+    // track ending restores the old behavior regardless of mixing.
+    captureStream.getVideoTracks().forEach((track) => {
+      track.onended = () => {
+        console.log("[DealAssistant] tab capture track ended (tab closed/left) -- auto-stopping recorder");
+        stopCapture();
+      };
+    });
 
-    recordingStream = new MediaStream([...captureStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
-    await logDebug("mixed mic + tab audio into recordingStream");
+    // Mix in the rep's own mic (see file-level comment for why tab capture
+    // alone isn't enough) -- best-effort: falls back to tab-audio-only if
+    // this fails for any reason, rather than failing the whole recording.
+    let recordingStream = captureStream;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      await logDebug(`got micStream, tracks: ${micStream.getTracks().map((t) => `${t.kind}:${t.readyState}:${t.label}`).join(", ")}`);
+
+      audioContext = new AudioContext();
+      const destination = audioContext.createMediaStreamDestination();
+      audioContext.createMediaStreamSource(captureStream).connect(destination);
+      audioContext.createMediaStreamSource(micStream).connect(destination);
+
+      recordingStream = new MediaStream([...captureStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+      await logDebug("mixed mic + tab audio into recordingStream");
+    } catch (err) {
+      await logDebug(`couldn't add mic audio, recording tab audio only: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(recordingStream, { mimeType: "video/webm;codecs=vp9,opus" });
+    await logDebug(`MediaRecorder created, state: ${mediaRecorder.state}, mimeType: ${mediaRecorder.mimeType}`);
   } catch (err) {
-    await logDebug(`couldn't add mic audio, recording tab audio only: ${err instanceof Error ? err.message : String(err)}`);
+    // Anything thrown above (including a logDebug() failure itself) used
+    // to leave captureStream's tracks running with nothing left to stop
+    // them -- Chrome then reports the tab's capture as still "active" and
+    // refuses every subsequent Start Recording attempt on it with "Cannot
+    // capture a tab with an active stream" until the whole extension is
+    // reloaded. Releasing here regardless of what failed keeps a retry
+    // possible without that.
+    captureStream?.getTracks().forEach((t) => t.stop());
+    captureStream = null;
+    micStream?.getTracks().forEach((t) => t.stop());
+    micStream = null;
+    audioContext?.close();
+    audioContext = null;
+    throw err;
   }
-
-  recordedChunks = [];
-  mediaRecorder = new MediaRecorder(recordingStream, { mimeType: "video/webm;codecs=vp9,opus" });
-  await logDebug(`MediaRecorder created, state: ${mediaRecorder.state}, mimeType: ${mediaRecorder.mimeType}`);
 
   mediaRecorder.ondataavailable = (e) => {
     console.log("[DealAssistant] ondataavailable, chunk size:", e.data.size, "total chunks so far:", recordedChunks.length + 1);
