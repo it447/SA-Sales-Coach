@@ -21,7 +21,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   try {
-    const updatedSession = await runQuote(session);
+    // suggestMatches: true -- this route only ever runs from an explicit
+    // rep click (or a manual /test run), never the live-call ingest loop,
+    // so it's safe to ask Claude to suggest a catalog-title match for any
+    // unpriced role here (see quoting.ts's addSuggestedMatches).
+    const updatedSession = await runQuote(session, true);
     return NextResponse.json(updatedSession);
   } catch (err) {
     return NextResponse.json(
