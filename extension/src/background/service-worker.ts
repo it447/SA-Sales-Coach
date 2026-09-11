@@ -22,6 +22,7 @@ import type {
   GetTabRecordingStateResponse,
   DownloadRecordingRequest,
   RecordingEndedRequest,
+  LogDebugRequest,
 } from "../lib/messages";
 import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
 import { logDebug } from "../lib/debugLog";
@@ -36,7 +37,8 @@ type IncomingRequest =
   | StopTabRecordingRequest
   | GetTabRecordingStateRequest
   | DownloadRecordingRequest
-  | RecordingEndedRequest;
+  | RecordingEndedRequest
+  | LogDebugRequest;
 
 chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResponse) => {
   if (message?.type === "DEAL_ASSISTANT_API_FETCH") {
@@ -68,6 +70,13 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
   if (message?.type === "DEAL_ASSISTANT_RECORDING_ENDED") {
     markRecordingStopped().then(() => sendResponse({ success: true }));
     return true;
+  }
+  if (message?.type === "DEAL_ASSISTANT_LOG_DEBUG") {
+    // Relayed from offscreen.ts, which has no chrome.storage of its own --
+    // this background context does, so logDebug() here writes it for real
+    // instead of relaying again.
+    logDebug(message.message);
+    return false;
   }
   return false;
 });

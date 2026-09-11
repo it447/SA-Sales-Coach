@@ -110,3 +110,16 @@ export interface DownloadRecordingRequest {
 export interface RecordingEndedRequest {
   type: "DEAL_ASSISTANT_RECORDING_ENDED";
 }
+
+/**
+ * Offscreen document -> background service worker: relay a debug log entry.
+ * chrome.storage is NOT available inside an offscreen document (confirmed
+ * via a real "Cannot read properties of undefined (reading 'local')" crash
+ * on the very first logDebug() call in offscreen.ts -- chrome.storage
+ * itself is undefined there), so debugLog.ts falls back to sending it here
+ * instead, where chrome.storage.local does work.
+ */
+export interface LogDebugRequest {
+  type: "DEAL_ASSISTANT_LOG_DEBUG";
+  message: string;
+}
