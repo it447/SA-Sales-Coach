@@ -7,19 +7,22 @@ import { enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
 import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse } from "../lib/messages";
 
-// Shorter batch window = pricing/extraction refreshes sooner after the rep
-// finishes scoping a role, at the cost of proportionally more Claude API
-// calls during a live call — extraction runs on essentially every tick
-// where someone's been talking, so this number directly sets call volume.
-// 8s still feels live for a coaching sidebar (the rep isn't watching for
-// sub-2-second updates) while cutting call count ~4x versus the original
-// 2s; combined with cheaper-model + prompt-caching changes in
-// lib/anthropic.ts, this is the extraction cost story end to end.
-const TRANSCRIPT_BATCH_MS = 8000;
+// Tiered extraction cadence: most of a call's early minutes are
+// agenda-setting/discovery, where the rep isn't waiting on live pricing or
+// objection-handling help — a slower, cheaper cadence there costs nothing
+// in practice. Once role scoping actually starts (see fastCadenceActive
+// below), the sidebar's live suggestions matter a lot more (pricing
+// pushback, objections, closing), so extraction switches to a faster
+// cadence for the rest of the call. Sticky forward-only, same philosophy
+// as CallPhases — a call doesn't go back to "just discovery" once roles
+// are being scoped.
+const SLOW_TRANSCRIPT_BATCH_MS = 20000;
+const FAST_TRANSCRIPT_BATCH_MS = 8000;
 const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
 let pendingCaptionLines: string[] = [];
+let fastCadenceActive = false;
 
 const sidebar = new Sidebar({
   onRunQuote: () =>
@@ -67,6 +70,10 @@ async function pollTabRecordingState(): Promise<void> {
 }
 
 function applySession(session: Awaited<ReturnType<typeof api.getSession>>): void {
+  // Role scoping isn't its own CallPhases flag (see types.ts) — it's judged
+  // from roles' presence directly, so that's the same signal this uses to
+  // switch extraction cadence.
+  fastCadenceActive = fastCadenceActive || session.roles.length > 0;
   sidebar.update(session);
 }
 
@@ -118,7 +125,7 @@ async function flushTranscriptLoop(): Promise<void> {
     });
   }
 
-  setTimeout(flushTranscriptLoop, TRANSCRIPT_BATCH_MS);
+  setTimeout(flushTranscriptLoop, fastCadenceActive ? FAST_TRANSCRIPT_BATCH_MS : SLOW_TRANSCRIPT_BATCH_MS);
 }
 
 /**
