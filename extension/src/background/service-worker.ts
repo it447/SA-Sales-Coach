@@ -24,6 +24,7 @@ import type {
   RecordingEndedRequest,
 } from "../lib/messages";
 import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
+import { logDebug } from "../lib/debugLog";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Deal Assistant installed.");
@@ -43,10 +44,12 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
     return true; // keep the message channel open for the async response
   }
   if (message?.type === "DEAL_ASSISTANT_START_TAB_RECORDING") {
+    logDebug(`service worker got START_TAB_RECORDING for tab ${message.tabId}, uploadUrl ${message.uploadUrl ? "present" : "null"}`);
     startTabRecording(message.tabId, message.uploadUrl, message.sessionId).then(sendResponse);
     return true;
   }
   if (message?.type === "DEAL_ASSISTANT_STOP_TAB_RECORDING") {
+    logDebug("service worker got STOP_TAB_RECORDING");
     stopTabRecording().then(sendResponse);
     return true;
   }
@@ -142,6 +145,7 @@ const OFFSCREEN_DOCUMENT_PATH = "dist/offscreen.html";
 async function startTabRecording(tabId: number, uploadUrl: string | null, sessionId: string): Promise<TabRecordingResponse> {
   try {
     await ensureOffscreenDocument();
+    await logDebug("offscreen document ready, requesting tabCapture stream ID");
 
     const streamId = await new Promise<string>((resolve, reject) => {
       chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
@@ -152,6 +156,7 @@ async function startTabRecording(tabId: number, uploadUrl: string | null, sessio
         }
       });
     });
+    await logDebug("got tabCapture stream ID, forwarding OFFSCREEN_START");
 
     const response: TabRecordingResponse = await chrome.runtime.sendMessage({
       type: "DEAL_ASSISTANT_OFFSCREEN_START",
@@ -159,12 +164,14 @@ async function startTabRecording(tabId: number, uploadUrl: string | null, sessio
       uploadUrl,
       sessionId,
     });
+    await logDebug(`OFFSCREEN_START response: ${JSON.stringify(response)}`);
     if (response?.success) {
       await setRecordingTabId(tabId);
       await setRecordingBadge(true);
     }
     return response;
   } catch (err) {
+    await logDebug(`startTabRecording failed: ${err instanceof Error ? err.message : String(err)}`);
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -172,6 +179,7 @@ async function startTabRecording(tabId: number, uploadUrl: string | null, sessio
 async function stopTabRecording(): Promise<TabRecordingResponse> {
   try {
     const response: TabRecordingResponse = await chrome.runtime.sendMessage({ type: "DEAL_ASSISTANT_OFFSCREEN_STOP" });
+    await logDebug(`OFFSCREEN_STOP response: ${JSON.stringify(response)}`);
     // markRecordingStopped() also runs when offscreen.ts's onstop fires and
     // sends DEAL_ASSISTANT_RECORDING_ENDED -- calling it again here too is
     // harmless (idempotent) and covers the case where that message
@@ -179,6 +187,7 @@ async function stopTabRecording(): Promise<TabRecordingResponse> {
     await markRecordingStopped();
     return response;
   } catch (err) {
+    await logDebug(`stopTabRecording failed: ${err instanceof Error ? err.message : String(err)}`);
     await markRecordingStopped();
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -189,8 +198,12 @@ async function ensureOffscreenDocument(): Promise<void> {
     contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
     documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)],
   });
-  if (existingContexts.length > 0) return;
+  if (existingContexts.length > 0) {
+    await logDebug("offscreen document already exists, reusing it");
+    return;
+  }
 
+  await logDebug("creating offscreen document");
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
     reasons: [chrome.offscreen.Reason.USER_MEDIA],
