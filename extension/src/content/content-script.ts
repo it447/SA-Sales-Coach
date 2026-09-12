@@ -5,7 +5,7 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import { enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
-import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse } from "../lib/messages";
+import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse, StopTabRecordingRequest } from "../lib/messages";
 
 // Tiered extraction cadence: most of a call's early minutes are
 // agenda-setting/discovery, where the rep isn't waiting on live pricing or
@@ -45,11 +45,17 @@ const sidebar = new Sidebar({
       flags[index] = { ...flags[index], resolved: true };
       return api.saveScopeFlags(config, sessionId, flags).then(applySession).catch(showError);
     }),
+  // Re-runs the quote right after saving -- lets an AE fix a below-budget
+  // role themselves (e.g. drop to a lower seniority, or open up region)
+  // and see the updated price immediately, instead of waiting for the
+  // next live extraction tick to notice the same change in the transcript
+  // (it might not, if the client never actually restates it out loud).
   onSaveRole: (role) =>
     withSession(async (config, sessionId) => {
       const session = await api.getSession(config, sessionId);
       const roles = session.roles.map((r) => (r.id === role.id ? role : r));
-      return api.saveRoles(config, sessionId, roles).then(applySession).catch(showError);
+      await api.saveRoles(config, sessionId, roles);
+      return api.runQuote(config, sessionId).then(applySession).catch(showError);
     }),
   // Sets this role's title to the catalog title Claude suggested (see
   // quoting.ts's addSuggestedMatches), then re-runs the quote so it prices
@@ -62,6 +68,13 @@ const sidebar = new Sidebar({
       await api.saveRoles(config, sessionId, roles);
       return api.runQuote(config, sessionId).then(applySession).catch(showError);
     }),
+  // Stopping tabCapture has no gesture requirement (unlike starting it),
+  // so this can be sent straight from the sidebar -- see popup.ts/
+  // service-worker.ts for why starting can't work the same way.
+  onStopRecording: () => {
+    const request: StopTabRecordingRequest = { type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" };
+    chrome.runtime.sendMessage(request).catch((err: unknown) => showError(err));
+  },
 });
 
 /**
