@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { colors } from "../../lib/theme";
 import { Badge } from "../../components/ui";
-import { sessionTitle, scopeCompletionPercent, sessionDurationLabel } from "../../lib/sessions";
+// Import directly from sessionDisplay.ts, NOT sessions.ts -- this file is
+// reachable from session-list.tsx's "use client", and even a re-export
+// from sessions.ts still bundles that file's own top-level `pool`/pg
+// import for the client, which is what broke the build the first time.
+import { sessionTitle, scopeCompletionPercent, sessionDurationLabel } from "../../lib/sessionDisplay";
 import type { CallSession } from "../../lib/types";
 import { DeleteSessionButton } from "./delete-session-button";
 
@@ -82,7 +86,15 @@ function Thumbnail({ session }: { session: CallSession }) {
   );
 }
 
-export function SessionCard({ session, isAdmin }: { session: CallSession; isAdmin: boolean }) {
+export function SessionCard({
+  session,
+  isAdmin,
+  onDeleted,
+}: {
+  session: CallSession;
+  isAdmin: boolean;
+  onDeleted?: () => void;
+}) {
   const pct = scopeCompletionPercent(session);
 
   return (
@@ -135,7 +147,7 @@ export function SessionCard({ session, isAdmin }: { session: CallSession; isAdmi
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Badge label={session.status.replace("_", " ")} tone={STATUS_TONE[session.status] ?? "neutral"} />
-          {isAdmin && <DeleteSessionButton sessionId={session.id} />}
+          {isAdmin && <DeleteSessionButton sessionId={session.id} onDeleted={onDeleted} />}
         </div>
       </div>
     </Link>
