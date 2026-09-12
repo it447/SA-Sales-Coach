@@ -8,6 +8,7 @@ export interface SidebarCallbacks {
   onResolveFlag: (index: number) => void;
   onSaveRole: (role: RoleScope) => void;
   onConfirmRoleMatch: (roleId: string, matchedTitle: string) => void;
+  onStopRecording: () => void;
 }
 
 export type TabRecordingState = "idle" | "recording";
@@ -223,6 +224,14 @@ export class Sidebar {
       };
       this.editingRoleId = null;
       this.callbacks.onSaveRole(updated);
+    } else if (action === "stop-tab-recording") {
+      // Optimistic -- pollTabRecordingState() would confirm this within
+      // 2s anyway, but a client who just said "please stop recording"
+      // shouldn't see the button still say "Recording this tab" while
+      // that round trip is in flight.
+      this.tabRecordingState = "idle";
+      this.render();
+      this.callbacks.onStopRecording();
     } else if (action === "confirm-role-match") {
       const roleId = target.dataset.roleId;
       const match = target.dataset.match;
@@ -342,13 +351,17 @@ export class Sidebar {
 
   // The tabCapture-based recording, which (unlike Meet's old native
   // recording via the organizer-only API, fully removed once this
-  // replaced it) works no matter who organized the call. Read-only here:
-  // it's started/stopped from the extension's popup (see popup.ts for
-  // why), so this just reflects whatever's actually happening and points
-  // the rep there.
+  // replaced it) works no matter who organized the call. STARTING a
+  // recording has to happen from the extension's popup (see popup.ts for
+  // why -- chrome.tabCapture requires a toolbar-icon-invocation gesture),
+  // but STOPPING one has no such restriction, so a real "Turn off" button
+  // lives right here -- e.g. a client says mid-call they don't want to be
+  // recorded, and the rep shouldn't have to go find the toolbar icon to
+  // honor that immediately.
   private renderTabRecordingControl(): string {
     if (this.tabRecordingState === "recording") {
-      return `<span style="color:${colors.redAccent}">● Recording this tab</span> <span class="muted">— stop it from the toolbar icon</span>`;
+      return `<span style="color:${colors.redAccent}">● Recording this tab</span>
+        <button class="secondary" data-action="stop-tab-recording" style="margin-left:0.5rem;padding:0.15rem 0.5rem">Turn off</button>`;
     }
     return `<span class="muted">Not recording this tab — click the Deal Assistant icon in your toolbar to start</span>`;
   }
