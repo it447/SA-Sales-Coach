@@ -48,7 +48,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     );
   }
 
-  const filename = `${session.meetingName ?? "Deal Assistant call"} - ${new Date().toISOString()}.webm`;
+  // Named after the actual meeting, not a generic label + timestamp -- so
+  // the recording is easy to find in Drive by the same name the rep sees
+  // in Meet/the dashboard. Falls back to a timestamped generic name only
+  // when meetingName wasn't captured (e.g. tab title unavailable).
+  const filename = session.meetingName
+    ? `${session.meetingName}.webm`
+    : `Deal Assistant call - ${new Date().toISOString()}.webm`;
 
   try {
     const accessToken = await getServiceAccountAccessToken();
