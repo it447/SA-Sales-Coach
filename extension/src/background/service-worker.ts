@@ -23,8 +23,10 @@ import type {
   DownloadRecordingRequest,
   RecordingEndedRequest,
   LogDebugRequest,
+  ReportRecordingUploadedRequest,
+  ReportRecordingUploadedResponse,
 } from "../lib/messages";
-import { getRecordingTabId, setRecordingTabId } from "../lib/storage";
+import { getRecordingTabId, setRecordingTabId, getConfig } from "../lib/storage";
 import { logDebug } from "../lib/debugLog";
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -38,7 +40,8 @@ type IncomingRequest =
   | GetTabRecordingStateRequest
   | DownloadRecordingRequest
   | RecordingEndedRequest
-  | LogDebugRequest;
+  | LogDebugRequest
+  | ReportRecordingUploadedRequest;
 
 chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResponse) => {
   if (message?.type === "DEAL_ASSISTANT_API_FETCH") {
@@ -78,6 +81,12 @@ chrome.runtime.onMessage.addListener((message: IncomingRequest, sender, sendResp
     logDebug(message.message);
     return false;
   }
+  if (message?.type === "DEAL_ASSISTANT_REPORT_RECORDING_UPLOADED") {
+    // Relayed from offscreen.ts for the same reason as LOG_DEBUG above --
+    // getConfig() needs chrome.storage, which doesn't exist there.
+    reportRecordingUploaded(message.sessionId, message.driveFileId).then(sendResponse);
+    return true;
+  }
   return false;
 });
 
@@ -104,6 +113,31 @@ async function setRecordingBadge(active: boolean): Promise<void> {
 async function markRecordingStopped(): Promise<void> {
   await setRecordingTabId(null);
   await setRecordingBadge(false);
+}
+
+/**
+ * Reports a finished Drive upload against its session -- relayed here from
+ * offscreen.ts (see ReportRecordingUploadedRequest in messages.ts for why:
+ * getConfig() needs chrome.storage, which doesn't exist in an offscreen
+ * document). Reuses handleApiFetch below rather than going back through
+ * lib/api.ts's own message-relay layer, since that layer exists specifically
+ * for contexts that need to reach the background worker in the first place
+ * -- this already IS the background worker.
+ */
+async function reportRecordingUploaded(sessionId: string, driveFileId: string): Promise<ReportRecordingUploadedResponse> {
+  const config = await getConfig();
+  if (!config) {
+    return { success: false, error: "No extension config found." };
+  }
+  const result = await handleApiFetch({
+    type: "DEAL_ASSISTANT_API_FETCH",
+    apiBaseUrl: config.apiBaseUrl,
+    apiKey: config.apiKey,
+    path: `/api/sessions/${sessionId}/recording-uploaded`,
+    method: "POST",
+    body: JSON.stringify({ driveFileId }),
+  });
+  return result.success ? { success: true } : { success: false, error: result.error };
 }
 
 /**
