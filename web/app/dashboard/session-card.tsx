@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { colors } from "../../lib/theme";
 import { Badge } from "../../components/ui";
-import { sessionTitle, scopeCompletionPercent, sessionDurationLabel } from "../../lib/sessions";
+// Import directly from sessionDisplay.ts, NOT sessions.ts -- this file is
+// reachable from session-list.tsx's "use client", and even a re-export
+// from sessions.ts still bundles that file's own top-level `pool`/pg
+// import for the client, which is what broke the build the first time.
+import { sessionTitle, scopeCompletionPercent, sessionDurationLabel } from "../../lib/sessionDisplay";
 import type { CallSession } from "../../lib/types";
 import { DeleteSessionButton } from "./delete-session-button";
 
