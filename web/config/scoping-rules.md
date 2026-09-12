@@ -23,6 +23,35 @@ seniority range, not two roles. Different titles = always separate roles.")_
 
 _(TODO: add any additional required fields, e.g. minimum must-have skill count.)_
 
+## A thorough scoping conversation covers (none of this is mandatory)
+
+None of the following are separate required fields, and none of them
+should ever hold up pricing — matchPricingRow only needs `title` and
+`seniority`. The client may volunteer any of this unprompted rather than
+being directly asked, and that counts the same as a direct answer. When
+genuinely addressed, fold it into the existing fields rather than treating
+it as unanswered just because it wasn't asked as a formal question:
+
+- Day-to-day responsibilities, and which skills are non-negotiable vs.
+  nice-to-have -> `mustHaves` / `niceToHaves`.
+- Seniority / years of experience -> `seniority` (see the mapping table
+  above).
+- Required background (industry, tech stack), license/certification
+  requirements, whether they'll follow an existing process or build one
+  from scratch, whether they'll manage anyone (now or within 6 months),
+  required English level, who they report to, whether they'll work with
+  other internal teams/vendors, a point of contact for onboarding/the
+  search, and how soon the client wants to onboard -> fold into
+  `mustHaves`/`niceToHaves` when they're concrete requirements (e.g. "must
+  hold a CPA", "will manage 2 people within 6 months"); English level
+  specifically also sets `salaryAdjustments.englishLevel` per the criteria
+  below.
+- Whether anyone else needs to be looped in to decide -> informs
+  `consultativeDiagnosisGiven` (see call-script.md) rather than a role field.
+
+If the client never addresses one of these, just leave it out — don't flag
+it as missing or block anything on it.
+
 ## Tech roles: two extra required answers
 
 For every technical/engineering role (`isTechRole: true` — software engineer,
