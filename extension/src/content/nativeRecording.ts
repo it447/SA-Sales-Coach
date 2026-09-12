@@ -97,3 +97,28 @@ export function watchForCallJoin(onJoin: () => void): void {
   };
   check();
 }
+
+/**
+ * Polls for the "Leave call" button DISAPPEARING once it's been seen --
+ * the call actually ending, as opposed to the tab closing (which
+ * offscreen.ts already handles separately via the tab capture track's own
+ * onended). Without this, a rep who leaves the call but leaves the Meet
+ * tab open (very common -- Meet lingers on a post-call screen) keeps
+ * recording indefinitely: tabCapture only notices the TAB closing, not
+ * the call inside it ending. Only call this from inside watchForCallJoin's
+ * onJoin callback -- it assumes the button already exists once and is
+ * watching for it to go away, not for it to ever appear.
+ */
+export function watchForCallLeave(onLeave: () => void): void {
+  const check = () => {
+    const leaveButton = document.querySelector<HTMLElement>(
+      'button[aria-label*="Leave call" i], button[aria-label*="Leave meeting" i]'
+    );
+    if (!leaveButton) {
+      onLeave();
+      return;
+    }
+    setTimeout(check, 1000);
+  };
+  check();
+}
