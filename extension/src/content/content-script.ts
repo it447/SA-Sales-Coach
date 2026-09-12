@@ -180,6 +180,33 @@ async function ensureSession(config: ExtensionConfig): Promise<string | null> {
   }
 }
 
+/**
+ * The session is created (see ensureSession above) the instant this
+ * content script first sees a Meet page + config -- but Meet is a SPA that
+ * often hasn't rendered the real calendar event name into document.title
+ * yet at that exact moment (it still just says "Meet"). Confirmed on a
+ * real call: the session's meetingName ended up null and stayed that way
+ * for the rest of the call, so the Drive recording's filename (see
+ * recording-upload-session/route.ts) fell back to a generic name instead
+ * of matching the actual meeting invite. Polls for the title becoming
+ * meaningful for a while after session creation and reports it once --
+ * the backend no-ops if the session already has a name, so this is safe
+ * to call regardless of whether the initial capture actually worked.
+ */
+function watchForMeetingName(config: ExtensionConfig, sessionId: string): void {
+  let attempts = 0;
+  const check = () => {
+    const meetingName = meetingNameFromTitle(document.title);
+    if (meetingName) {
+      api.setMeetingName(config, sessionId, meetingName).catch((err) => showError(err));
+      return;
+    }
+    attempts++;
+    if (attempts < 15) setTimeout(check, 2000);
+  };
+  check();
+}
+
 function watchForConfigAndSession(): void {
   const check = async () => {
     const config = await getConfig();
@@ -198,6 +225,7 @@ function watchForConfigAndSession(): void {
     }
 
     sidebar.setBanner(null);
+    watchForMeetingName(config, sessionId);
     pollLoop();
     flushTranscriptLoop();
 

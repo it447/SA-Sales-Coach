@@ -43,6 +43,19 @@ export function createSession(
   });
 }
 
+/**
+ * Fills in the real meeting name after the fact, if the session was
+ * created before Meet had rendered it into the tab title yet (see
+ * content-script.ts's watchForMeetingName) — a no-op server-side if the
+ * session already has one.
+ */
+export function setMeetingName(config: ExtensionConfig, sessionId: string, meetingName: string): Promise<CallSession> {
+  return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/meeting-name`, {
+    method: "POST",
+    body: JSON.stringify({ meetingName }),
+  });
+}
+
 export function getSession(config: ExtensionConfig, sessionId: string): Promise<CallSession> {
   return apiFetch<CallSession>(config, `/api/sessions/${sessionId}`);
 }
