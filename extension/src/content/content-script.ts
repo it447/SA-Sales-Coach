@@ -3,7 +3,7 @@ import * as api from "../lib/api";
 import { meetingNameFromTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
-import { enableCaptionsViaUi, watchForCallJoin } from "./nativeRecording";
+import { enableCaptionsViaUi, watchForCallJoin, watchForCallLeave } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
 import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse, StopTabRecordingRequest } from "../lib/messages";
 
@@ -214,6 +214,21 @@ function watchForConfigAndSession(): void {
           console.log(`[DealAssistant] couldn't auto-enable captions: ${captionsResult.reason}`);
         }
       }, 2000);
+
+      // Stop recording when the CALL ends, not just when the tab closes --
+      // offscreen.ts's tab-capture-track-ended handler only catches the
+      // latter, and a rep commonly leaves the lingering post-call Meet
+      // screen open rather than closing the tab. Only stop if THIS tab is
+      // actually the one recording -- with multiple Meet tabs open, this
+      // tab leaving its call must never stop a different tab's recording.
+      watchForCallLeave(async () => {
+        const request: GetTabRecordingStateRequest = { type: "DEAL_ASSISTANT_GET_TAB_RECORDING_STATE" };
+        const response: GetTabRecordingStateResponse = await chrome.runtime.sendMessage(request);
+        if (response?.isThisTabRecording) {
+          const stopRequest: StopTabRecordingRequest = { type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" };
+          chrome.runtime.sendMessage(stopRequest).catch((err: unknown) => showError(err));
+        }
+      });
     });
   };
   check();
