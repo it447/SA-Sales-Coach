@@ -82,7 +82,15 @@ function Thumbnail({ session }: { session: CallSession }) {
   );
 }
 
-export function SessionCard({ session, isAdmin }: { session: CallSession; isAdmin: boolean }) {
+export function SessionCard({
+  session,
+  isAdmin,
+  onDeleted,
+}: {
+  session: CallSession;
+  isAdmin: boolean;
+  onDeleted?: () => void;
+}) {
   const pct = scopeCompletionPercent(session);
 
   return (
@@ -135,7 +143,7 @@ export function SessionCard({ session, isAdmin }: { session: CallSession; isAdmi
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Badge label={session.status.replace("_", " ")} tone={STATUS_TONE[session.status] ?? "neutral"} />
-          {isAdmin && <DeleteSessionButton sessionId={session.id} />}
+          {isAdmin && <DeleteSessionButton sessionId={session.id} onDeleted={onDeleted} />}
         </div>
       </div>
     </Link>

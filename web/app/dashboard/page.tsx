@@ -5,7 +5,7 @@ import { colors } from "../../lib/theme";
 import { Card } from "../../components/ui";
 import { ExtensionBanner } from "../../components/extension-banner";
 import { SignOutButton } from "./sign-out-button";
-import { SessionCard } from "./session-card";
+import { SessionList } from "./session-list";
 import { PeriodFilterSelect } from "./period-filter";
 import { parsePeriod, periodCutoff, groupSessionsByDay } from "../../lib/dashboardGrouping";
 
@@ -46,22 +46,7 @@ export default async function DashboardPage({
           <p style={{ color: colors.beige }}>No calls in this time period.</p>
         </Card>
       ) : (
-        groups.map((group) => (
-          <div key={group.label} style={{ marginBottom: "2rem" }}>
-            <h2 style={{ color: colors.beige, fontSize: "1rem", marginBottom: "0.75rem" }}>{group.label}</h2>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                gap: "1rem",
-              }}
-            >
-              {group.sessions.map((s) => (
-                <SessionCard key={s.id} session={s} isAdmin={!!session?.user?.isAdmin} />
-              ))}
-            </div>
-          </div>
-        ))
+        <SessionList groups={groups} isAdmin={!!session?.user?.isAdmin} />
       )}
     </main>
   );
