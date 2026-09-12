@@ -123,3 +123,21 @@ export interface LogDebugRequest {
   type: "DEAL_ASSISTANT_LOG_DEBUG";
   message: string;
 }
+
+/**
+ * Offscreen document -> background service worker: report a finished Drive
+ * upload against its session. offscreen.ts used to call getConfig()
+ * (storage.ts, chrome.storage.local) directly and call the backend itself
+ * -- same class of bug as LogDebugRequest above: chrome.storage doesn't
+ * exist inside an offscreen document, so that call always threw, was
+ * mis-caught as "the whole Drive upload failed" (even though the file had
+ * already genuinely uploaded, real file ID and all), and fell through to
+ * an unnecessary local download every time. The background worker does
+ * have chrome.storage, so it does the actual reporting now.
+ */
+export interface ReportRecordingUploadedRequest {
+  type: "DEAL_ASSISTANT_REPORT_RECORDING_UPLOADED";
+  sessionId: string;
+  driveFileId: string;
+}
+export type ReportRecordingUploadedResponse = { success: true } | { success: false; error: string };

@@ -22,9 +22,14 @@
  * start. If mic access still isn't available for any reason, this falls
  * back to tab-audio-only rather than failing the whole recording.
  */
-import type { OffscreenStartRequest, OffscreenStopRequest, DownloadRecordingRequest, RecordingEndedRequest } from "../lib/messages";
-import { getConfig } from "../lib/storage";
-import { reportRecordingUploaded } from "../lib/api";
+import type {
+  OffscreenStartRequest,
+  OffscreenStopRequest,
+  DownloadRecordingRequest,
+  RecordingEndedRequest,
+  ReportRecordingUploadedRequest,
+  ReportRecordingUploadedResponse,
+} from "../lib/messages";
 import { logDebug } from "../lib/debugLog";
 
 let mediaRecorder: MediaRecorder | null = null;
@@ -206,12 +211,24 @@ async function saveRecording(blob: Blob, uploadUrl: string | null, sessionId: st
     try {
       const driveFileId = await uploadToDrive(blob, uploadUrl);
       await logDebug(`uploaded to Drive, file id: ${driveFileId}`);
-      const config = await getConfig();
-      if (config) {
-        await reportRecordingUploaded(config, sessionId, driveFileId);
+
+      // Relayed to the background worker -- chrome.storage (which getConfig()
+      // needs) doesn't exist in this offscreen document, same as the
+      // debug-log relay above. Reported here, not caught by the try/catch
+      // below, so a failure to report never gets mis-logged as the Drive
+      // upload itself having failed (it already genuinely succeeded).
+      const reportRequest: ReportRecordingUploadedRequest = {
+        type: "DEAL_ASSISTANT_REPORT_RECORDING_UPLOADED",
+        sessionId,
+        driveFileId,
+      };
+      const reportResponse: ReportRecordingUploadedResponse = await chrome.runtime.sendMessage(reportRequest);
+      if (reportResponse?.success) {
         await logDebug(`reported upload to backend, session: ${sessionId}`);
       } else {
-        await logDebug("no extension config found -- can't report the upload, but the file is safely in Drive.");
+        await logDebug(
+          `couldn't report upload to backend (file is safely in Drive, id ${driveFileId}): ${reportResponse?.error}`
+        );
       }
       return;
     } catch (err) {
