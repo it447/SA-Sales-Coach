@@ -394,3 +394,69 @@ export async function generateCallSummary(session: CallSession): Promise<string>
   );
   return (textBlock?.text ?? "").trim();
 }
+
+const CLEANUP_TOOL: Anthropic.Tool = {
+  name: "cleanup_transcript",
+  description:
+    "Return a lightly corrected version of each transcript line, fixing only words that are clearly mis-transcribed -- never rephrasing, summarizing, or restructuring anything.",
+  input_schema: {
+    type: "object",
+    properties: {
+      correctedLines: {
+        type: "array",
+        description:
+          "Exactly one corrected line per input line, in the same order (same count as the input). Each line should be IDENTICAL to the input unless a specific word is clearly a mis-transcription (a nonsense word, an obviously wrong homophone) that surrounding context makes obvious -- fix only that word. Don't touch grammar, don't add or remove punctuation, don't reword anything that already reads sensibly even if informal.",
+        items: { type: "string" },
+      },
+    },
+    required: ["correctedLines"],
+  },
+};
+
+/**
+ * Post-call only, triggered manually from the dashboard (see
+ * /api/sessions/:id/cleanup-transcript) -- never during the live call.
+ * Live captions misread individual words fairly often (homophones, unusual
+ * names, cross-talk); this asks Claude to fix just the words that are
+ * clearly wrong given context, one line at a time, leaving everything else
+ * byte-for-byte untouched. Uses index-aligned lines (not full free-form
+ * rewriting) specifically so the result can be verified line-for-line
+ * against the input before it's trusted -- a mismatched line count means
+ * something went wrong, so the caller should discard rather than guess at
+ * realigning it.
+ */
+export async function cleanupTranscript(transcript: TranscriptChunk[]): Promise<TranscriptChunk[]> {
+  if (transcript.length === 0) return transcript;
+
+  const lines = transcript.map((c, i) => `[${i}] ${c.text}`).join("\n");
+  const system =
+    "You clean up auto-generated live-caption transcripts from sales calls. Fix ONLY words that are clearly " +
+    "mis-transcribed (nonsense words, wrong homophones, garbled proper nouns) based on surrounding context -- " +
+    "never rephrase, summarize, reorder, or restructure anything, and never touch a line that already reads fine, " +
+    "even if the grammar is informal or the punctuation looks unusual (that's normal for live captions).";
+
+  const message = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 16000,
+    system,
+    tools: [CLEANUP_TOOL],
+    tool_choice: { type: "tool", name: "cleanup_transcript" },
+    messages: [{ role: "user", content: `Transcript lines (${transcript.length} total):\n${lines}` }],
+  });
+
+  const toolUse = message.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
+  if (!toolUse) {
+    throw new Error("Claude did not return a tool_use block for cleanup_transcript.");
+  }
+
+  const { correctedLines } = toolUse.input as { correctedLines: string[] };
+  if (correctedLines.length !== transcript.length) {
+    throw new Error(
+      `Cleanup returned ${correctedLines.length} lines but the transcript has ${transcript.length} -- discarding rather than risk misaligning timestamps/speakers.`
+    );
+  }
+
+  return transcript.map((chunk, i) => ({ ...chunk, text: correctedLines[i] }));
+}

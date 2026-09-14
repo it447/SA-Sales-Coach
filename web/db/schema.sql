@@ -68,6 +68,16 @@ alter table call_sessions add column if not exists recording_drive_file_id text;
 -- adds it there. Safe to re-run: no-op once the column exists.
 alter table call_sessions add column if not exists call_phases jsonb not null default '{"agendaSet": false, "discoveryCovered": false, "consultativeDiagnosisGiven": false, "processExplained": false, "pricingDiscussed": false, "closeAttempted": false}'::jsonb;
 
+-- cleaned_transcript: an AI-lightened-up copy of `transcript`, populated on
+-- demand from the dashboard (see /api/sessions/:id/cleanup-transcript) --
+-- live captions misread individual words fairly often, and this asks Claude
+-- to fix just the words that are clearly wrong given context, leaving
+-- everything else untouched, rather than the rep having to read the raw
+-- caption-scrape transcript. `transcript` itself is never modified -- it's
+-- what live extraction already ran against during the call, and keeping the
+-- original around means a bad cleanup edit is never destructive.
+alter table call_sessions add column if not exists cleaned_transcript jsonb;
+
 create index if not exists call_sessions_rep_email_idx on call_sessions (rep_email);
 create index if not exists call_sessions_status_idx on call_sessions (status);
 

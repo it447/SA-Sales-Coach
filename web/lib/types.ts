@@ -285,6 +285,8 @@ export interface CallSession {
   startedAt: string;
   updatedAt: string;
   transcript: TranscriptChunk[];
+  /** An AI-lightened-up copy of `transcript` (same shape/order), null until /api/sessions/:id/cleanup-transcript is run. `transcript` itself is never modified. */
+  cleanedTranscript: TranscriptChunk[] | null;
 
   roles: RoleScope[];
   scopeFlags: ScopeFlag[];

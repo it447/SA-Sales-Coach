@@ -14,6 +14,7 @@ interface CallSessionRow {
   started_at: Date;
   updated_at: Date;
   transcript: unknown;
+  cleaned_transcript: unknown;
   roles: unknown;
   scope_flags: unknown;
   call_phases: unknown;
@@ -44,6 +45,7 @@ export function rowToSession(row: CallSessionRow): CallSession {
     startedAt: row.started_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     transcript: row.transcript as CallSession["transcript"],
+    cleanedTranscript: (row.cleaned_transcript as CallSession["cleanedTranscript"]) ?? null,
     roles: row.roles as CallSession["roles"],
     scopeFlags: row.scope_flags as CallSession["scopeFlags"],
     // Falls back for rows written before this column existed on a

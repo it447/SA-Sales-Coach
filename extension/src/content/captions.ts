@@ -29,15 +29,20 @@
  * scratch each time. Re-querying the selector and combining/deduping
  * whatever text is on screen right now sidesteps that entirely.
  *
- * The delta itself is everything after the LONGEST COMMON PREFIX of the
- * old and new text, not "new text starting with the old text verbatim".
- * Google's live captions constantly revise already-shown text as an
- * utterance continues -- most visibly, a tentative period gets replaced
- * as soon as more words arrive ("Hi there." -> "Hi there, so.") -- so a
- * strict startsWith check treats nearly every update as an unrelated new
- * line and re-emits the entire growing sentence on every revision.
- * Common-prefix diffing tolerates that: a one-word punctuation revision
- * only emits the changed tail, not the whole sentence again.
+ * The delta is everything between the longest common PREFIX and the
+ * longest common SUFFIX of the old and new text (word-level, not
+ * character-level), not just "new text after the old text verbatim".
+ * Google's live captions don't only grow at the end -- they revise
+ * tentative words ANYWHERE in the sentence as more audio context arrives,
+ * including mid-sentence (confirmed on a real call: the same clause
+ * showed up twice in the transcript with different guessed words each
+ * time, e.g. "...like with nickel transcript to be like me now" then
+ * "...like bicycle transcript to coloss" for what was clearly one
+ * utterance). A prefix-only diff can't tell a mid-sentence revision from
+ * brand-new text: it stops at the changed word and re-emits everything
+ * after it, including the unchanged tail that was already sent. Matching
+ * the tail too (a common suffix) isolates just the actually-new-or-revised
+ * middle span instead of duplicating what didn't change.
  */
 
 export type OnCaptionText = (text: string) => void;
@@ -45,11 +50,32 @@ export type OnCaptionText = (text: string) => void;
 const CAPTIONS_SELECTOR = 'div[role="region"][aria-label="Captions"]';
 const UI_CHROME_PATTERN = /arrow_downward\s*Jump to bottom|Live captions are on|Loading\.\.\./g;
 
-function commonPrefixLength(a: string, b: string): number {
-  const max = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < max && a[i] === b[i]) i++;
-  return i;
+/**
+ * The new text's delta against the old text: strips the longest common
+ * leading run of words, then the longest common trailing run of words
+ * (bounded so the two runs can't overlap), leaving just what's actually
+ * new or revised in between. Word-level, not character-level -- a
+ * revised word is a whole-word swap, not a partial character match.
+ */
+function wordDelta(oldText: string, newText: string): string {
+  const oldWords = oldText.split(/\s+/).filter(Boolean);
+  const newWords = newText.split(/\s+/).filter(Boolean);
+
+  let prefixLen = 0;
+  while (prefixLen < oldWords.length && prefixLen < newWords.length && oldWords[prefixLen] === newWords[prefixLen]) {
+    prefixLen++;
+  }
+
+  let suffixLen = 0;
+  const maxSuffix = Math.min(oldWords.length, newWords.length) - prefixLen;
+  while (
+    suffixLen < maxSuffix &&
+    oldWords[oldWords.length - 1 - suffixLen] === newWords[newWords.length - 1 - suffixLen]
+  ) {
+    suffixLen++;
+  }
+
+  return newWords.slice(prefixLen, newWords.length - suffixLen).join(" ");
 }
 
 export class CaptionWatcher {
@@ -102,8 +128,7 @@ export class CaptionWatcher {
 
     this.hasSeenAnyCaption = true;
 
-    const prefixLen = commonPrefixLength(this.lastCombinedText, combined);
-    const delta = combined.slice(prefixLen).trim();
+    const delta = wordDelta(this.lastCombinedText, combined).trim();
     if (delta) {
       this.onText(delta);
     }
