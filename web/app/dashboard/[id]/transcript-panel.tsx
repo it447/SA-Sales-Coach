@@ -15,10 +15,6 @@ export function TranscriptPanel({
   initialCleanedTranscript: TranscriptChunk[] | null;
 }) {
   const [cleaned, setCleaned] = useState(initialCleanedTranscript);
-  // Defaults to showing the cleaned version once one exists -- that's the
-  // whole point of asking for it -- but the raw original stays one click
-  // away, never overwritten (see cleanup-transcript/route.ts).
-  const [showCleaned, setShowCleaned] = useState(initialCleanedTranscript !== null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +26,6 @@ export function TranscriptPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to clean up transcript.");
       setCleaned(data.cleanedTranscript);
-      setShowCleaned(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -38,31 +33,17 @@ export function TranscriptPanel({
     }
   };
 
-  const displayed = showCleaned && cleaned ? cleaned : transcript;
+  // Only the cleaned transcript is ever shown once one exists -- the raw
+  // caption-scrape version stays in `transcript` untouched in the DB (see
+  // cleanup-transcript/route.ts) but isn't surfaced here anymore.
+  const displayed = cleaned ?? transcript;
 
   return (
     <Card title="Full transcript">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <Button onClick={cleanup} disabled={loading || transcript.length === 0}>
-            {loading ? "Cleaning up…" : cleaned ? "Re-clean transcript" : "Clean up transcript"}
-          </Button>
-          {cleaned && (
-            <button
-              onClick={() => setShowCleaned(!showCleaned)}
-              style={{
-                background: "none",
-                border: "none",
-                color: colors.orange,
-                fontSize: "0.85rem",
-                cursor: "pointer",
-                textDecoration: "underline",
-              }}
-            >
-              {showCleaned ? "View raw original" : "View cleaned version"}
-            </button>
-          )}
-        </div>
+        <Button onClick={cleanup} disabled={loading || transcript.length === 0}>
+          {loading ? "Cleaning up…" : cleaned ? "Re-clean transcript" : "Clean up transcript"}
+        </Button>
       </div>
       {error && <p style={{ color: colors.redAccent, marginBottom: "0.75rem" }}>{error}</p>}
       {displayed.length === 0 ? (
