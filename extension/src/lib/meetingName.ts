@@ -11,3 +11,20 @@ export function meetingNameFromTitle(title: string | undefined): string | null {
   if (!trimmed || trimmed === "Meet") return null;
   return trimmed;
 }
+
+/**
+ * Sales calls at Scale Army follow a fixed calendar-invite naming
+ * convention ("Carlos Marchani <> Scale Army: Intro Meeting", "Intro Call -
+ * Marketing between Joe Ali and Shah") -- this checks the tab title for
+ * that convention so the content script can stay fully inert (no
+ * auto-created session, no captions auto-enabled) on internal meetings,
+ * which live on the same meet.google.com domain and would otherwise
+ * trigger identically. Case-insensitive substring match, deliberately
+ * loose -- the goal is "does this look like a sales call", not exact
+ * parsing.
+ */
+export function isSalesCallTitle(title: string | undefined): boolean {
+  const trimmed = title?.trim().toLowerCase();
+  if (!trimmed) return false;
+  return trimmed.includes("intro call") || trimmed.includes("intro meeting");
+}
