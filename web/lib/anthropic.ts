@@ -405,7 +405,7 @@ const CLEANUP_TOOL: Anthropic.Tool = {
       correctedLines: {
         type: "array",
         description:
-          "Exactly one corrected line per input line, in the same order (same count as the input). Each line should be IDENTICAL to the input unless a specific word is clearly a mis-transcription (a nonsense word, an obviously wrong homophone) that surrounding context makes obvious -- fix only that word. Don't touch grammar, don't add or remove punctuation, don't reword anything that already reads sensibly even if informal.",
+          "Exactly one corrected line per input line, in the same order (same count as the input). Each line should be IDENTICAL to the input unless a specific word is clearly a mis-transcription (a nonsense word, an obviously wrong homophone) that surrounding context makes obvious -- fix only that word, leaving the rest of the line byte-for-byte the same. This is a handful of word swaps per line at most, never a rewrite -- don't touch grammar, don't add or remove punctuation, don't reword anything that already reads sensibly even if informal. A line with nothing clearly wrong should come back completely unchanged.",
         items: { type: "string" },
       },
     },
@@ -458,5 +458,30 @@ export async function cleanupTranscript(transcript: TranscriptChunk[]): Promise<
     );
   }
 
-  return transcript.map((chunk, i) => ({ ...chunk, text: correctedLines[i] }));
+  return transcript.map((chunk, i) => ({ ...chunk, text: constrainToWordSwaps(chunk.text, correctedLines[i]) }));
+}
+
+/**
+ * Belt-and-suspenders on top of the system prompt: even with instructions
+ * to only swap the occasional mis-transcribed word, a model can still
+ * rephrase a line wholesale. This rejects a correction whose word-level
+ * edit distance from the original is too large relative to the line's
+ * length, falling back to the original line rather than trusting a
+ * rewrite that goes beyond "a word here and there".
+ */
+function constrainToWordSwaps(original: string, corrected: string): string {
+  const originalWords = original.split(/\s+/).filter(Boolean);
+  const correctedWords = corrected.split(/\s+/).filter(Boolean);
+  const changedWords = Math.abs(originalWords.length - correctedWords.length) + wordSubstitutions(originalWords, correctedWords);
+  const maxAllowedChanges = Math.max(2, Math.ceil(originalWords.length * 0.2));
+  return changedWords <= maxAllowedChanges ? corrected : original;
+}
+
+function wordSubstitutions(a: string[], b: string[]): number {
+  const len = Math.min(a.length, b.length);
+  let substitutions = 0;
+  for (let i = 0; i < len; i++) {
+    if (a[i] !== b[i]) substitutions++;
+  }
+  return substitutions;
 }
