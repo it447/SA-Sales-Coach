@@ -8,6 +8,7 @@ import { colors } from "../../../lib/theme";
 import { Card, Badge } from "../../../components/ui";
 import { SummaryPanel } from "./summary-panel";
 import { RecordingPanel } from "./recording-panel";
+import { TranscriptPanel } from "./transcript-panel";
 import { DeleteSessionButton } from "../delete-session-button";
 
 function money(n: number | null): string {
@@ -133,19 +134,11 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
         </Card>
       )}
 
-      <Card title="Full transcript">
-        {session.transcript.length === 0 ? (
-          <p style={{ color: colors.beige }}>No transcript captured.</p>
-        ) : (
-          <div style={{ maxHeight: "500px", overflowY: "auto" }}>
-            {session.transcript.map((chunk, i) => (
-              <p key={i} style={{ color: colors.beige, fontSize: "0.85rem", marginBottom: "0.4rem" }}>
-                <span style={{ color: colors.orange }}>[{chunk.timestamp}]</span> {chunk.speaker ?? "?"}: {chunk.text}
-              </p>
-            ))}
-          </div>
-        )}
-      </Card>
+      <TranscriptPanel
+        sessionId={session.id}
+        transcript={session.transcript}
+        initialCleanedTranscript={session.cleanedTranscript}
+      />
     </main>
   );
 }
