@@ -1,6 +1,6 @@
 import { getConfig, getSessionIdForMeet, setSessionIdForMeet, normalizeMeetLink } from "../lib/storage";
 import * as api from "../lib/api";
-import { meetingNameFromTitle } from "../lib/meetingName";
+import { meetingNameFromTitle, isSalesCallTitle } from "../lib/meetingName";
 import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import { enableCaptionsViaUi, watchForCallJoin, watchForCallLeave } from "./nativeRecording";
@@ -207,7 +207,14 @@ function watchForMeetingName(config: ExtensionConfig, sessionId: string): void {
   check();
 }
 
+// Meet's title can take a few seconds to render the real calendar event
+// name (see watchForMeetingName) -- give it up to 30s of retries before
+// concluding this call doesn't match the sales-call naming convention.
+const TITLE_GATE_MAX_ATTEMPTS = 15;
+
 function watchForConfigAndSession(): void {
+  let titleGateAttempts = 0;
+
   const check = async () => {
     const config = await getConfig();
     if (!config) {
@@ -217,6 +224,23 @@ function watchForConfigAndSession(): void {
     }
 
     sidebar.setDashboardBaseUrl(config.apiBaseUrl);
+
+    // Stay fully inert on calls that don't look like a sales call (see
+    // isSalesCallTitle) -- no auto-created session, no auto-enabled
+    // captions, no sidebar banner -- so internal meetings on the same
+    // meet.google.com domain aren't treated as sales calls. A call already
+    // activated (e.g. a reload mid-call, or the rep manually clicked
+    // "Start Call" from the popup for a call whose title doesn't match)
+    // always bypasses this check -- once on for a call, it stays on.
+    const meetLink = normalizeMeetLink(location.href);
+    const existingSessionId = await getSessionIdForMeet(meetLink);
+    if (!existingSessionId && !isSalesCallTitle(document.title)) {
+      titleGateAttempts++;
+      if (titleGateAttempts < TITLE_GATE_MAX_ATTEMPTS) {
+        setTimeout(check, 2000);
+      }
+      return;
+    }
 
     const sessionId = await ensureSession(config);
     if (!sessionId) {
