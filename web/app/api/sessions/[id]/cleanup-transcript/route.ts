@@ -1,26 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../../lib/authOptions";
+import { requireAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/db";
 import { rowToSession, getSession } from "../../../../../lib/sessions";
 import { cleanupTranscript } from "../../../../../lib/anthropic";
 
 /**
- * POST /api/sessions/:id/cleanup-transcript — dashboard-only. Gated by the
- * human Google login (authOptions), not the extension's bearer-token
- * requireAuth(), like /summarize — this is only ever called from a
- * signed-in browser session, never the extension, and never during the
- * live call itself.
+ * POST /api/sessions/:id/cleanup-transcript — callable either from the
+ * dashboard (a signed-in Google login, the original manual "Clean up
+ * transcript" / "Re-clean transcript" button) or from the extension itself
+ * via its bearer-token requireAuth(), which now triggers this
+ * automatically the moment the rep leaves the call (see content-script.ts's
+ * watchForCallLeave) so a cleaned transcript is usually already sitting on
+ * the dashboard by the time anyone opens it, no button needed.
  *
  * Writes to `cleaned_transcript`, never `transcript` — the raw transcript
  * is what live extraction already ran against during the call, and keeping
  * it around means a cleanup pass that gets something wrong is never
  * destructive; the rep can always compare against the original.
  */
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const dashboardSession = await getServerSession(authOptions);
+  if (!dashboardSession) {
+    const authError = requireAuth(request);
+    if (authError) return authError;
   }
 
   const callSession = await getSession(params.id);

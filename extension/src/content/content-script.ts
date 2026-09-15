@@ -124,29 +124,32 @@ async function pollLoop(): Promise<void> {
   setTimeout(pollLoop, POLL_MS);
 }
 
-async function flushTranscriptLoop(): Promise<void> {
+async function flushPendingCaptions(): Promise<void> {
   const linesToSend = pendingCaptionLines;
   pendingCaptionLines = [];
 
-  if (linesToSend.length > 0) {
-    await withSession(async (config, sessionId) => {
-      try {
-        // One request instead of postTranscript + runExtract + runQuote
-        // separately — this loop fires every couple of seconds for the
-        // whole call, so each round trip saved is latency the rep feels
-        // directly. Pricing recalculates automatically as part of it
-        // whenever the quote isn't locked yet, no button needed.
-        const result = await api.ingestTranscript(config, sessionId, [
-          { timestamp: new Date().toISOString(), speaker: null, text: linesToSend.join(" ") },
-        ]);
-        sidebar.setObjectionSuggestions(result.objectionSuggestions);
-        applySession(result.session);
-      } catch (err) {
-        showError(err);
-      }
-    });
-  }
+  if (linesToSend.length === 0) return;
 
+  await withSession(async (config, sessionId) => {
+    try {
+      // One request instead of postTranscript + runExtract + runQuote
+      // separately — this loop fires every couple of seconds for the
+      // whole call, so each round trip saved is latency the rep feels
+      // directly. Pricing recalculates automatically as part of it
+      // whenever the quote isn't locked yet, no button needed.
+      const result = await api.ingestTranscript(config, sessionId, [
+        { timestamp: new Date().toISOString(), speaker: null, text: linesToSend.join(" ") },
+      ]);
+      sidebar.setObjectionSuggestions(result.objectionSuggestions);
+      applySession(result.session);
+    } catch (err) {
+      showError(err);
+    }
+  });
+}
+
+async function flushTranscriptLoop(): Promise<void> {
+  await flushPendingCaptions();
   setTimeout(flushTranscriptLoop, fastCadenceActive ? FAST_TRANSCRIPT_BATCH_MS : SLOW_TRANSCRIPT_BATCH_MS);
 }
 
@@ -286,6 +289,15 @@ function watchForConfigAndSession(): void {
           const stopRequest: StopTabRecordingRequest = { type: "DEAL_ASSISTANT_STOP_TAB_RECORDING" };
           chrome.runtime.sendMessage(stopRequest).catch((err: unknown) => showError(err));
         }
+
+        // Send whatever's left in the buffer, then kick off the post-call
+        // transcript cleanup now that the call has actually ended -- no
+        // need for the rep to open the dashboard and click "Clean up
+        // transcript" themselves anymore (see lib/api.ts's
+        // cleanupTranscript). Fire-and-forget: the rep has already left,
+        // there's nothing on screen left to show progress on.
+        await flushPendingCaptions();
+        await withSession((config, sessionId) => api.cleanupTranscript(config, sessionId).catch((err: unknown) => showError(err)));
       });
     });
   };
