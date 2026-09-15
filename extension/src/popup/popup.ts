@@ -17,23 +17,6 @@ function isMeetUrl(url: string | undefined): boolean {
   return !!url && url.startsWith("https://meet.google.com/");
 }
 
-/**
- * Accepts either a pasted Drive folder link (any of Drive's URL shapes
- * that contain "/folders/<id>") or a raw folder ID typed/pasted directly,
- * and returns just the ID either way. Rejects anything that still looks
- * like a URL fragment (contains "/") without matching that pattern, so a
- * malformed link fails obviously in Settings rather than silently getting
- * sent to the server as a bogus "folder ID".
- */
-function extractDriveFolderId(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  if (trimmed.includes("/")) return null;
-  return trimmed;
-}
-
 function renderSettingsForm(existing: ExtensionConfig | null, message?: string): void {
   const apiBaseUrlValue = existing?.apiBaseUrl ?? "https://sa-sales-coach.vercel.app";
   const repEmailValue = existing?.repEmail ?? "";
@@ -54,16 +37,6 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
       <input id="repEmail" value="${repEmailValue}" />
     </div>
     <button id="save">Save Settings</button>
-    <hr />
-    <p class="muted">Optional -- only needed for the manual "Recording" toggle in the sidebar and finding a Meet-recorded file in Drive. Not required for the tab recording (this device) feature.</p>
-    <button class="secondary" id="connectGoogle">Connect Google Account</button>
-    <hr />
-    <div class="field">
-      <label>Drive folder for recordings (optional)</label>
-      <input id="driveFolderId" placeholder="Paste a Drive folder link, or its ID" value="${existing?.driveFolderId ?? ""}" />
-    </div>
-    <p class="muted">Overrides the default shared folder for tabCapture recordings. Open the folder in Drive, copy its link, and paste it here -- your connected Google account still needs access to it. Leave blank to use the default.</p>
-    <button id="saveDriveFolder">Save Drive Folder</button>
   `;
 
   document.getElementById("save")!.addEventListener("click", async () => {
@@ -80,26 +53,6 @@ function renderSettingsForm(existing: ExtensionConfig | null, message?: string):
     renderMain();
   });
 
-  document.getElementById("saveDriveFolder")!.addEventListener("click", async () => {
-    const raw = (document.getElementById("driveFolderId") as HTMLInputElement).value;
-    if (!existing) return; // the main Save Settings button above must be used first
-    if (raw.trim() && !extractDriveFolderId(raw)) {
-      renderSettingsForm(existing, "That doesn't look like a Drive folder link or ID -- paste the folder's link from Drive's own \"Copy link\" option, or leave it blank.");
-      return;
-    }
-    await setConfig({ ...existing, driveFolderId: extractDriveFolderId(raw) });
-    renderSettingsForm({ ...existing, driveFolderId: extractDriveFolderId(raw) }, "Drive folder saved.");
-  });
-
-  document.getElementById("connectGoogle")!.addEventListener("click", () => {
-    const apiBaseUrl = (document.getElementById("apiBaseUrl") as HTMLInputElement).value.trim().replace(/\/$/, "");
-    const repEmail = (document.getElementById("repEmail") as HTMLInputElement).value.trim();
-    if (!apiBaseUrl || !repEmail) {
-      renderSettingsForm(existing, "Fill in the API base URL and your email first, then connect Google.");
-      return;
-    }
-    chrome.tabs.create({ url: `${apiBaseUrl}/api/google/connect?repEmail=${encodeURIComponent(repEmail)}` });
-  });
 }
 
 async function renderMain(): Promise<void> {
