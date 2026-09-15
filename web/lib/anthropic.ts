@@ -425,10 +425,31 @@ const CLEANUP_TOOL: Anthropic.Tool = {
  * something went wrong, so the caller should discard rather than guess at
  * realigning it.
  */
+// Each transcript entry can be a whole batched utterance (several sentences
+// -- see the extension's flushTranscriptLoop), not a short caption line, so
+// a long call's full transcript can easily blow past a single request's
+// output budget once Claude has to echo every line back. A real call
+// crashed with "correctedLines" coming back undefined -- Claude's tool
+// call got cut off mid-generation by hitting max_tokens, since the output
+// has to be at least as large as the whole input transcript. Batching
+// keeps each request's output bounded regardless of how long the call ran.
+const CLEANUP_BATCH_SIZE = 25;
+const CLEANUP_MAX_TOKENS = 4000;
+
 export async function cleanupTranscript(transcript: TranscriptChunk[]): Promise<TranscriptChunk[]> {
   if (transcript.length === 0) return transcript;
 
-  const lines = transcript.map((c, i) => `[${i}] ${c.text}`).join("\n");
+  const batches: TranscriptChunk[][] = [];
+  for (let i = 0; i < transcript.length; i += CLEANUP_BATCH_SIZE) {
+    batches.push(transcript.slice(i, i + CLEANUP_BATCH_SIZE));
+  }
+
+  const cleanedBatches = await Promise.all(batches.map(cleanupBatch));
+  return cleanedBatches.flat();
+}
+
+async function cleanupBatch(batch: TranscriptChunk[]): Promise<TranscriptChunk[]> {
+  const lines = batch.map((c, i) => `[${i}] ${c.text}`).join("\n");
   const system =
     "You clean up auto-generated live-caption transcripts from sales calls. Fix ONLY words that are clearly " +
     "mis-transcribed (nonsense words, wrong homophones, garbled proper nouns) based on surrounding context -- " +
@@ -437,11 +458,11 @@ export async function cleanupTranscript(transcript: TranscriptChunk[]): Promise<
 
   const message = await getClient().messages.create({
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: CLEANUP_MAX_TOKENS,
     system,
     tools: [CLEANUP_TOOL],
     tool_choice: { type: "tool", name: "cleanup_transcript" },
-    messages: [{ role: "user", content: `Transcript lines (${transcript.length} total):\n${lines}` }],
+    messages: [{ role: "user", content: `Transcript lines (${batch.length} total):\n${lines}` }],
   });
 
   const toolUse = message.content.find(
@@ -451,14 +472,17 @@ export async function cleanupTranscript(transcript: TranscriptChunk[]): Promise<
     throw new Error("Claude did not return a tool_use block for cleanup_transcript.");
   }
 
-  const { correctedLines } = toolUse.input as { correctedLines: string[] };
-  if (correctedLines.length !== transcript.length) {
+  // Defensive: an incomplete/malformed tool call (e.g. still hitting the
+  // per-batch token budget on an unusually long line) should discard that
+  // batch's corrections rather than crash the whole cleanup pass.
+  const { correctedLines } = toolUse.input as { correctedLines?: string[] };
+  if (!Array.isArray(correctedLines) || correctedLines.length !== batch.length) {
     throw new Error(
-      `Cleanup returned ${correctedLines.length} lines but the transcript has ${transcript.length} -- discarding rather than risk misaligning timestamps/speakers.`
+      `Cleanup returned ${Array.isArray(correctedLines) ? correctedLines.length : "no"} lines but this batch has ${batch.length} -- discarding rather than risk misaligning timestamps/speakers.`
     );
   }
 
-  return transcript.map((chunk, i) => ({ ...chunk, text: constrainToWordSwaps(chunk.text, correctedLines[i]) }));
+  return batch.map((chunk, i) => ({ ...chunk, text: constrainToWordSwaps(chunk.text, correctedLines[i]) }));
 }
 
 /**

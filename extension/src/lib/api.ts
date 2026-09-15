@@ -186,6 +186,20 @@ export function getRecordingDestination(config: ExtensionConfig, sessionId: stri
   return apiFetch<RecordingDestination>(config, `/api/sessions/${sessionId}/recording-destination${query}`);
 }
 
+/**
+ * Triggers the post-call transcript cleanup pass server-side (see
+ * lib/anthropic.ts's cleanupTranscript on the web app) -- called
+ * automatically once the rep leaves the call (see content-script.ts's
+ * watchForCallLeave), so a cleaned transcript is usually already sitting
+ * on the dashboard without the rep needing to click "Clean up transcript"
+ * themselves.
+ */
+export function cleanupTranscript(config: ExtensionConfig, sessionId: string): Promise<CallSession> {
+  return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/cleanup-transcript`, {
+    method: "POST",
+  });
+}
+
 /** Records a tabCapture recording's Drive file ID against the session, once offscreen.ts's direct-to-Drive upload finishes. */
 export function reportRecordingUploaded(config: ExtensionConfig, sessionId: string, driveFileId: string): Promise<CallSession> {
   return apiFetch<CallSession>(config, `/api/sessions/${sessionId}/recording-uploaded`, {
