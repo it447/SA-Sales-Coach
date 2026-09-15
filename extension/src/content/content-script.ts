@@ -208,9 +208,16 @@ function watchForMeetingName(config: ExtensionConfig, sessionId: string): void {
 }
 
 // Meet's title can take a few seconds to render the real calendar event
-// name (see watchForMeetingName) -- give it up to 30s of retries before
-// concluding this call doesn't match the sales-call naming convention.
-const TITLE_GATE_MAX_ATTEMPTS = 15;
+// name (see watchForMeetingName) -- poll fast for the first 30s to catch
+// that. After that, a non-matching title keeps getting rechecked, just on a
+// slower cadence -- a rep can still manually activate a non-matching call
+// later via the popup's "Start Call" button (see popup.ts), and this needs
+// to notice that whenever it happens, not just within the first 30 seconds
+// after page load. Giving up entirely here would strand the sidebar off
+// even after the rep manually starts a session.
+const TITLE_GATE_FAST_ATTEMPTS = 15;
+const TITLE_GATE_FAST_DELAY_MS = 2000;
+const TITLE_GATE_SLOW_DELAY_MS = 10000;
 
 function watchForConfigAndSession(): void {
   let titleGateAttempts = 0;
@@ -236,9 +243,8 @@ function watchForConfigAndSession(): void {
     const existingSessionId = await getSessionIdForMeet(meetLink);
     if (!existingSessionId && !isSalesCallTitle(document.title)) {
       titleGateAttempts++;
-      if (titleGateAttempts < TITLE_GATE_MAX_ATTEMPTS) {
-        setTimeout(check, 2000);
-      }
+      const delay = titleGateAttempts < TITLE_GATE_FAST_ATTEMPTS ? TITLE_GATE_FAST_DELAY_MS : TITLE_GATE_SLOW_DELAY_MS;
+      setTimeout(check, delay);
       return;
     }
 
