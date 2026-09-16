@@ -52,7 +52,7 @@ export function TranscriptPanel({
         <div style={{ maxHeight: "500px", overflowY: "auto" }}>
           {displayed.map((chunk, i) => (
             <p key={i} style={{ color: colors.beige, fontSize: "0.85rem", marginBottom: "0.4rem" }}>
-              <span style={{ color: colors.orange }}>[{chunk.timestamp}]</span> {chunk.speaker ?? "?"}: {chunk.text}
+              <span style={{ fontWeight: "bold" }}>{chunk.speaker ?? "?"}:</span> {chunk.text}
             </p>
           ))}
         </div>
