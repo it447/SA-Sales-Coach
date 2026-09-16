@@ -45,10 +45,22 @@
  * middle span instead of duplicating what didn't change.
  */
 
+import { logDebug } from "../lib/debugLog";
+
 export type OnCaptionText = (text: string) => void;
 
 const CAPTIONS_SELECTOR = 'div[role="region"][aria-label="Captions"]';
 const UI_CHROME_PATTERN = /arrow_downward\s*Jump to bottom|Live captions are on|Loading\.\.\./g;
+
+// TEMPORARY (remove once speaker-name parsing ships): Meet's caption DOM is
+// undocumented, and we don't yet know how it marks up "who said this line"
+// when more than one person is talking -- this snapshots the raw markup
+// into the debug log (see lib/debugLog.ts, readable via the popup's "View
+// debug log") for the first few times captions change on a real multi-
+// speaker call, so the actual structure can be inspected instead of guessed
+// at. Capped and truncated so it can't flood the log or bloat storage.
+const DOM_SNAPSHOT_MAX_CAPTURES = 15;
+const DOM_SNAPSHOT_MAX_CHARS = 1000;
 
 /**
  * The new text's delta against the old text: strips the longest common
@@ -83,6 +95,7 @@ export class CaptionWatcher {
   private lastCombinedText = "";
   private hasSeenAnyCaption = false;
   private onText: OnCaptionText;
+  private domSnapshotsTaken = 0;
 
   constructor(onText: OnCaptionText) {
     this.onText = onText;
@@ -127,6 +140,12 @@ export class CaptionWatcher {
     if (!combined || combined === this.lastCombinedText) return;
 
     this.hasSeenAnyCaption = true;
+
+    if (this.domSnapshotsTaken < DOM_SNAPSHOT_MAX_CAPTURES) {
+      this.domSnapshotsTaken++;
+      const html = nodes[0].outerHTML.slice(0, DOM_SNAPSHOT_MAX_CHARS);
+      logDebug(`caption DOM snapshot #${this.domSnapshotsTaken}: ${html}`).catch(() => {});
+    }
 
     const delta = wordDelta(this.lastCombinedText, combined).trim();
     if (delta) {
