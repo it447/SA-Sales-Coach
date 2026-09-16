@@ -1,66 +1,63 @@
 /**
- * Live-caption scraping for Google Meet.
+ * Live-caption scraping for Google Meet, with per-speaker attribution.
  *
  * CAVEAT: Meet has no public API for its caption DOM. Confirmed by direct
  * inspection (2026-08): the captions container is
  * `div[role="region"][aria-label="Captions"]` — NOT `aria-live`, despite
  * that being the usual accessibility pattern for this kind of live-updating
- * text (our first guess, which didn't match anything real). We read the
- * whole region's text as one blob rather than depending on Google's
- * obfuscated inner class names (e.g. `ygicle`, `VbkSUe`), since those are
- * far more likely to change between Meet deployments than the semantic
- * role/aria-label. If captions stop being detected after a Meet UI update,
- * this is the first place to look — inspect the DOM while captions are on
- * and adjust the selector below.
+ * text (our first guess, which didn't match anything real). If captions
+ * stop being detected after a Meet UI update, this is the first place to
+ * look — inspect the DOM while captions are on and adjust the selector
+ * below.
  *
  * Deliberately NOT also matching the generic `[aria-live]` selector: Meet
  * puts that on plenty of unrelated UI (mic/camera toast notifications, the
  * "you joined" banner, the leave-call countdown, the device picker), and
  * querying it alongside the real region pulled all of that into the
- * transcript as if it were caption text. UI_CHROME_PATTERN strips text
- * baked into the captions region itself, notably the "Jump to bottom" pill
- * Meet renders as a nested child of the same region.
+ * transcript as if it were caption text.
  *
- * Diffing is done against a single `lastCombinedText` string, NOT per-node
- * (e.g. a WeakMap keyed by the DOM node) -- Meet's captions region gets
- * recreated as a new element on updates rather than mutated in place, so
+ * SPEAKER STRUCTURE (confirmed via a real multi-speaker call, 2026-09):
+ * inside the region, each speaker who's spoken recently gets their own
+ * sibling `<div>` block -- a new block is appended when a different
+ * speaker starts talking, and an existing speaker's block gets revised in
+ * place while they keep talking. Each block has exactly two direct-child
+ * divs: one containing an `<img>` avatar plus the speaker's name (in a
+ * nested `<span>`), the other holding that speaker's caption text with no
+ * further nesting. We identify a block by "has an <img> descendant" and
+ * split its two children by "the one with the img" vs. "the one without"
+ * -- deliberately NOT by Meet's own class names (e.g. `nMcdL`, `ygicle`,
+ * `NWpY1d`), since those are auto-generated/obfuscated and far more likely
+ * to change between Meet deployments than this general avatar+name+text
+ * layout. Other region children (the "Jump to bottom" button, a hidden
+ * placeholder div) have no `<img>` and are naturally excluded by this
+ * filter, with no need for a separate text blocklist.
+ *
+ * Diffing is done per-speaker against a `lastTextBySpeaker` map, NOT
+ * per-DOM-node (e.g. a WeakMap keyed by the node) -- Meet's captions
+ * region gets recreated on updates rather than mutated in place, so
  * anything keyed by node identity loses track of "previous" on every
- * single update and re-emits the entire accumulated sentence from
- * scratch each time. Re-querying the selector and combining/deduping
- * whatever text is on screen right now sidesteps that entirely.
+ * single update. Keying by the speaker's displayed name instead survives
+ * that, and also naturally handles a speaker's block scrolling off and a
+ * later block for the same name appearing again later in the call: if the
+ * new text doesn't share a prefix/suffix with the old (a fresh, unrelated
+ * utterance), the whole thing is correctly treated as new rather than
+ * needing to reconcile against stale state.
  *
- * The delta is everything between the longest common PREFIX and the
- * longest common SUFFIX of the old and new text (word-level, not
- * character-level), not just "new text after the old text verbatim".
- * Google's live captions don't only grow at the end -- they revise
- * tentative words ANYWHERE in the sentence as more audio context arrives,
- * including mid-sentence (confirmed on a real call: the same clause
- * showed up twice in the transcript with different guessed words each
- * time, e.g. "...like with nickel transcript to be like me now" then
- * "...like bicycle transcript to coloss" for what was clearly one
- * utterance). A prefix-only diff can't tell a mid-sentence revision from
- * brand-new text: it stops at the changed word and re-emits everything
- * after it, including the unchanged tail that was already sent. Matching
- * the tail too (a common suffix) isolates just the actually-new-or-revised
- * middle span instead of duplicating what didn't change.
+ * The delta for a given speaker is everything between the longest common
+ * PREFIX and the longest common SUFFIX of their old and new text
+ * (word-level, not character-level), not just "new text after the old
+ * text verbatim". Google's live captions don't only grow at the end --
+ * they revise tentative words ANYWHERE in the sentence as more audio
+ * context arrives, including mid-sentence (confirmed on a real call: the
+ * same clause showed up twice with different guessed words each time). A
+ * prefix-only diff can't tell a mid-sentence revision from brand-new text.
+ * Matching the tail too isolates just the actually-new-or-revised middle
+ * span instead of duplicating what didn't change.
  */
 
-import { logDebug } from "../lib/debugLog";
-
-export type OnCaptionText = (text: string) => void;
+export type OnCaptionText = (speaker: string | null, text: string) => void;
 
 const CAPTIONS_SELECTOR = 'div[role="region"][aria-label="Captions"]';
-const UI_CHROME_PATTERN = /arrow_downward\s*Jump to bottom|Live captions are on|Loading\.\.\./g;
-
-// TEMPORARY (remove once speaker-name parsing ships): Meet's caption DOM is
-// undocumented, and we don't yet know how it marks up "who said this line"
-// when more than one person is talking -- this snapshots the raw markup
-// into the debug log (see lib/debugLog.ts, readable via the popup's "View
-// debug log") for the first few times captions change on a real multi-
-// speaker call, so the actual structure can be inspected instead of guessed
-// at. Capped and truncated so it can't flood the log or bloat storage.
-const DOM_SNAPSHOT_MAX_CAPTURES = 15;
-const DOM_SNAPSHOT_MAX_CHARS = 1000;
 
 /**
  * The new text's delta against the old text: strips the longest common
@@ -90,12 +87,41 @@ function wordDelta(oldText: string, newText: string): string {
   return newWords.slice(prefixLen, newWords.length - suffixLen).join(" ");
 }
 
+interface SpeakerBlock {
+  speaker: string | null;
+  text: string;
+}
+
+/**
+ * Splits the captions region into one entry per speaker block. See the
+ * SPEAKER STRUCTURE note above for why blocks are identified by "has an
+ * <img> descendant" rather than by class name.
+ */
+function extractSpeakerBlocks(region: HTMLElement): SpeakerBlock[] {
+  const blocks: SpeakerBlock[] = [];
+
+  for (const child of Array.from(region.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (!child.querySelector("img")) continue; // not a speaker block (button controls, hidden chrome, etc.)
+
+    const directChildren = Array.from(child.children).filter((c): c is HTMLElement => c instanceof HTMLElement);
+    const avatarWrapper = directChildren.find((c) => c.querySelector("img"));
+    const textDiv = directChildren.find((c) => c !== avatarWrapper);
+
+    const speaker = avatarWrapper?.querySelector("span")?.textContent?.trim() || null;
+    const text = (textDiv?.textContent ?? "").replace(/\s+/g, " ").trim();
+
+    if (text) blocks.push({ speaker, text });
+  }
+
+  return blocks;
+}
+
 export class CaptionWatcher {
   private observer: MutationObserver | null = null;
-  private lastCombinedText = "";
+  private lastTextBySpeaker = new Map<string | null, string>();
   private hasSeenAnyCaption = false;
   private onText: OnCaptionText;
-  private domSnapshotsTaken = 0;
 
   constructor(onText: OnCaptionText) {
     this.onText = onText;
@@ -122,36 +148,26 @@ export class CaptionWatcher {
   }
 
   private scan(): void {
-    const nodes = document.querySelectorAll<HTMLElement>(CAPTIONS_SELECTOR);
-    if (nodes.length === 0) return;
+    // Meet sometimes renders a second, visually-hidden mirror of the same
+    // region for screen readers -- only the first one is needed, and
+    // processing both would double-emit every line.
+    const region = document.querySelector<HTMLElement>(CAPTIONS_SELECTOR);
+    if (!region) return;
 
-    // Dedupe identical text across nodes -- e.g. a visually-hidden
-    // screen-reader mirror of the same captions alongside the visible
-    // region would otherwise double every line.
-    const texts = new Set<string>();
-    nodes.forEach((node) => {
-      const text = (node.textContent ?? "")
-        .replace(UI_CHROME_PATTERN, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (text) texts.add(text);
-    });
-    const combined = Array.from(texts).join(" ");
-    if (!combined || combined === this.lastCombinedText) return;
+    const blocks = extractSpeakerBlocks(region);
+    if (blocks.length === 0) return;
 
     this.hasSeenAnyCaption = true;
 
-    if (this.domSnapshotsTaken < DOM_SNAPSHOT_MAX_CAPTURES) {
-      this.domSnapshotsTaken++;
-      const html = nodes[0].outerHTML.slice(0, DOM_SNAPSHOT_MAX_CHARS);
-      logDebug(`caption DOM snapshot #${this.domSnapshotsTaken}: ${html}`).catch(() => {});
-    }
+    for (const block of blocks) {
+      const previous = this.lastTextBySpeaker.get(block.speaker) ?? "";
+      if (block.text === previous) continue;
 
-    const delta = wordDelta(this.lastCombinedText, combined).trim();
-    if (delta) {
-      this.onText(delta);
+      const delta = wordDelta(previous, block.text).trim();
+      if (delta) {
+        this.onText(block.speaker, delta);
+      }
+      this.lastTextBySpeaker.set(block.speaker, block.text);
     }
-
-    this.lastCombinedText = combined;
   }
 }
