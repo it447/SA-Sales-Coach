@@ -86,7 +86,7 @@ export type CallSessionStatus =
 
 export interface TranscriptChunk {
   timestamp: string;
-  /** Meet captions often don't give reliable speaker labels — null is fine. */
+  /** The speaker's name/email as parsed from Meet's captions, or null if that couldn't be determined for this chunk. */
   speaker: string | null;
   text: string;
 }

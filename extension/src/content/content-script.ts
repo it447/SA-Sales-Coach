@@ -5,6 +5,7 @@ import { CaptionWatcher } from "./captions";
 import { Sidebar } from "./sidebar";
 import { enableCaptionsViaUi, watchForCallJoin, watchForCallLeave } from "./nativeRecording";
 import type { ExtensionConfig } from "../lib/storage";
+import type { TranscriptChunk } from "../types";
 import type { GetTabRecordingStateRequest, GetTabRecordingStateResponse, StopTabRecordingRequest } from "../lib/messages";
 
 // Tiered extraction cadence: most of a call's early minutes are
@@ -21,8 +22,13 @@ const FAST_TRANSCRIPT_BATCH_MS = 8000;
 const POLL_MS = 2000;
 const CAPTIONS_WARNING_DELAY_MS = 8000;
 
-let pendingCaptionLines: string[] = [];
+let pendingCaptions: TranscriptChunk[] = [];
 let fastCadenceActive = false;
+// Meet labels the local participant's own lines "You" -- fine in the
+// in-call captions UI, but meaningless to anyone reading the transcript
+// later on the dashboard. Swapped for the rep's own email once config
+// resolves (see watchForConfigAndSession).
+let repLabel: string | null = null;
 
 const sidebar = new Sidebar({
   onRunQuote: () =>
@@ -124,11 +130,31 @@ async function pollLoop(): Promise<void> {
   setTimeout(pollLoop, POLL_MS);
 }
 
-async function flushPendingCaptions(): Promise<void> {
-  const linesToSend = pendingCaptionLines;
-  pendingCaptionLines = [];
+/**
+ * Merges consecutive same-speaker entries from the buffer into one chunk
+ * each (joining their text), so a speaker's several small caption deltas
+ * within one flush window become a single transcript line instead of many
+ * fragments -- while still splitting into a new chunk wherever the
+ * speaker actually changes.
+ */
+function groupBySpeaker(items: TranscriptChunk[]): TranscriptChunk[] {
+  const grouped: TranscriptChunk[] = [];
+  for (const item of items) {
+    const last = grouped[grouped.length - 1];
+    if (last && last.speaker === item.speaker) {
+      last.text = `${last.text} ${item.text}`;
+    } else {
+      grouped.push({ ...item });
+    }
+  }
+  return grouped;
+}
 
-  if (linesToSend.length === 0) return;
+async function flushPendingCaptions(): Promise<void> {
+  const itemsToSend = pendingCaptions;
+  pendingCaptions = [];
+
+  if (itemsToSend.length === 0) return;
 
   await withSession(async (config, sessionId) => {
     try {
@@ -137,9 +163,7 @@ async function flushPendingCaptions(): Promise<void> {
       // whole call, so each round trip saved is latency the rep feels
       // directly. Pricing recalculates automatically as part of it
       // whenever the quote isn't locked yet, no button needed.
-      const result = await api.ingestTranscript(config, sessionId, [
-        { timestamp: new Date().toISOString(), speaker: null, text: linesToSend.join(" ") },
-      ]);
+      const result = await api.ingestTranscript(config, sessionId, groupBySpeaker(itemsToSend));
       sidebar.setObjectionSuggestions(result.objectionSuggestions);
       applySession(result.session);
     } catch (err) {
@@ -234,6 +258,7 @@ function watchForConfigAndSession(): void {
     }
 
     sidebar.setDashboardBaseUrl(config.apiBaseUrl);
+    repLabel = config.repEmail;
 
     // Stay fully inert on calls that don't look like a sales call (see
     // isSalesCallTitle) -- no auto-created session, no auto-enabled
@@ -305,8 +330,9 @@ function watchForConfigAndSession(): void {
 }
 
 function watchForCaptions(): void {
-  const watcher = new CaptionWatcher((text) => {
-    pendingCaptionLines.push(text);
+  const watcher = new CaptionWatcher((speaker, text) => {
+    const label = speaker === "You" ? repLabel ?? speaker : speaker;
+    pendingCaptions.push({ timestamp: new Date().toISOString(), speaker: label, text });
   });
   watcher.start();
 
