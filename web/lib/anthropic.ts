@@ -2,7 +2,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import path from "path";
 import { USA_BENCHMARK_ROLES } from "./types";
-import type { RoleScope, ScopeFlag, CallPhases, TranscriptChunk, CallSession } from "./types";
+import type {
+  RoleScope,
+  ScopeFlag,
+  CallPhases,
+  TranscriptChunk,
+  CallSession,
+  ScorecardResult,
+  ScorecardCategoryScore,
+} from "./types";
+import { parseScorecardStructure, type ScorecardStructure } from "./scorecardStructure";
 
 // Matches the model already in production use by the scale-army-jd-tool
 // agent, for consistency across our internal tools. Used for JD generation
@@ -508,4 +517,279 @@ function wordSubstitutions(a: string[], b: string[]): number {
     if (a[i] !== b[i]) substitutions++;
   }
   return substitutions;
+}
+
+/**
+ * Scores a call against config/scorecard-rubric.md -- the exact same rubric
+ * (categories, point values, scoring bands, objection formulas) used by the
+ * standalone ScoreCardApp this was ported from. Two Claude calls run
+ * concurrently, exactly mirroring that app's split:
+ *
+ *   1. The SQL check -- is this prospect a real, qualified opportunity --
+ *      plus call metadata (rep/client names, roles discussed).
+ *   2. The full category scorecard -- how well the rep executed -- plus
+ *      objection-by-objection detail, flags, and a coaching focus.
+ *
+ * Both share one cached system prompt (the parsed rubric doc), so the
+ * second call onward only pays full price for the transcript itself.
+ *
+ * Unlike the source app (which asked Claude to emit raw JSON in a text
+ * response and hoped it parsed), this uses forced tool use for both calls,
+ * matching every other structured-extraction call in this file -- more
+ * reliable than parsing free-form text, and the rubric content itself is
+ * unchanged either way.
+ */
+
+const SQL_CHECK_TOOL: Anthropic.Tool = {
+  name: "sql_check",
+  description: "Run the SQL qualification check and extract call metadata from a Scale Army AE call transcript, per the rubric's Tool 1.",
+  input_schema: {
+    type: "object",
+    properties: {
+      rep_name: { type: "string", description: "The AE's name, or \"Unknown\" if not determinable." },
+      client_name: { type: "string", description: "The prospect's name, or \"Unknown\" if not determinable." },
+      company_context: { type: "string", description: "One short sentence about the client's company/situation." },
+      roles_discussed: { type: "array", items: { type: "string" } },
+      sql: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["Yes", "No", "Unclear"] },
+          criteria: {
+            type: "array",
+            description: "Exactly one entry per criterion listed under the rubric's \"SQL = Yes\" list, in the order they appear, using each criterion's exact label text.",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                status: { type: "string", enum: ["yes", "no", "unclear"] },
+                note: { type: "string", description: "1 sentence of evidence, quoting the transcript where possible." },
+              },
+              required: ["label", "status", "note"],
+            },
+          },
+          disqualifiers: { type: "array", items: { type: "string" } },
+          summary: { type: "string", description: "2-3 sentence SQL verdict explanation." },
+        },
+        required: ["status", "criteria", "disqualifiers", "summary"],
+      },
+    },
+    required: ["rep_name", "client_name", "company_context", "roles_discussed", "sql"],
+  },
+};
+
+const SCORECARD_TOOL: Anthropic.Tool = {
+  name: "call_scorecard",
+  description: "Score every AI-scored category of a Scale Army AE call transcript, per the rubric's Tool 2, plus objection detail, flags, and coaching.",
+  input_schema: {
+    type: "object",
+    properties: {
+      categories: {
+        type: "array",
+        description: "Exactly one entry per AI-scored category named in the prompt, in that order, using those exact keys.",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            score: { type: "number", description: "Within that category's 0-max range per the rubric's scoring bands." },
+            summary: { type: "string", description: "2-3 sentence verdict." },
+            strengths: { type: "array", items: { type: "string" }, description: "What earned credit, with short quotes." },
+            deductions: { type: "array", items: { type: "string" }, description: "Each specific deduction, with short quotes." },
+          },
+          required: ["key", "score", "summary", "strengths", "deductions"],
+        },
+      },
+      objection_details: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            objection: { type: "string" },
+            rep_response: { type: "string" },
+            formula_attempted: { type: "string", description: "The rubric's exact name for the formula attempted, or \"None\"." },
+            rating: { type: "string" },
+            reason: { type: "string" },
+          },
+          required: ["objection", "rep_response", "formula_attempted", "rating", "reason"],
+        },
+      },
+      flags: { type: "array", items: { type: "string" }, description: "Every instance of every behavior the rubric says must be flagged. Empty if none." },
+      coaching_focus: { type: "string", description: "The single highest-leverage coaching point, with a concrete drill." },
+      went_well: { type: "array", items: { type: "string" } },
+      needs_improvement: { type: "array", items: { type: "string" } },
+    },
+    required: ["categories", "objection_details", "flags", "coaching_focus", "went_well", "needs_improvement"],
+  },
+};
+
+function scorecardSharedSystem(rubric: string, structure: ScorecardStructure): Anthropic.TextBlockParam[] {
+  const reviewerOnly = structure.reviewerCategories.length
+    ? ` NEVER score ${structure.reviewerCategories
+        .map((c) => `"${c.name}"`)
+        .join(" or ")} -- the rubric reserves ${
+        structure.reviewerCategories.length === 1 ? "it" : "them"
+      } for the human reviewer.`
+    : "";
+
+  return [
+    {
+      type: "text",
+      text: `You are the AI scorer for Scale Army's AE call evaluation system. The document between <rubric> tags is your GROUND TRUTH. Follow it exactly -- its category definitions, boundary rules, scoring bands, pitfalls, and product knowledge override anything else you believe about sales calls.
+
+<rubric>
+${rubric}
+</rubric>
+
+INPUT CONTEXT: You are scoring from TRANSCRIPT ONLY -- no video. Score each category from what the transcript actually supports; where the rubric says a category needs video or other input you don't have, score what the transcript allows.${reviewerOnly}`,
+      cache_control: { type: "ephemeral" },
+    },
+  ];
+}
+
+function transcriptText(transcript: TranscriptChunk[]): string {
+  return transcript.map((c) => `[${c.timestamp}] ${c.speaker ?? "?"}: ${c.text}`).join("\n");
+}
+
+interface SqlCheckOutput {
+  rep_name: string;
+  client_name: string;
+  company_context: string;
+  roles_discussed: string[];
+  sql: ScorecardResult["sql"];
+}
+
+async function runSqlCheck(
+  system: Anthropic.TextBlockParam[],
+  transcript: TranscriptChunk[]
+): Promise<SqlCheckOutput> {
+  const message = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    system,
+    tools: [SQL_CHECK_TOOL],
+    tool_choice: { type: "tool", name: "sql_check" },
+    messages: [
+      {
+        role: "user",
+        content: `Run TOOL 1 -- the SQL CHECK -- and extract the call metadata from this Scale Army AE call transcript, per the rubric.\n\nTranscript:\n\n${transcriptText(transcript)}`,
+      },
+    ],
+  });
+
+  const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+  if (!toolUse) throw new Error("Claude did not return a tool_use block for sql_check.");
+  return toolUse.input as SqlCheckOutput;
+}
+
+interface ScorecardCategoriesOutput {
+  categories: ScorecardCategoryScore[];
+  objection_details: ScorecardResult["objection_details"];
+  flags: string[];
+  coaching_focus: string;
+  went_well: string[];
+  needs_improvement: string[];
+}
+
+async function runScorecardCategories(
+  system: Anthropic.TextBlockParam[],
+  transcript: TranscriptChunk[],
+  structure: ScorecardStructure
+): Promise<ScorecardCategoriesOutput> {
+  const { aiCategories, reviewerCategories } = structure;
+  const categoryList = aiCategories.map((c) => `- key "${c.key}": ${c.name} (0-${c.max} points)`).join("\n");
+  const excludeLine = reviewerCategories.length
+    ? ` Do not include an entry for ${reviewerCategories.map((c) => `"${c.name}"`).join(" or ")} -- the rubric reserves ${
+        reviewerCategories.length === 1 ? "that category" : "those categories"
+      } for the human reviewer.`
+    : "";
+
+  // Streamed rather than a plain create(): this call's output can run to
+  // several thousand tokens (every category's strengths/deductions, every
+  // objection, flags, coaching) and take a couple of minutes -- an idle
+  // non-streaming connection risks being reset by a proxy/NAT before the
+  // model finishes. See the source app's app/api/analyze/route.ts, which
+  // hit this exact issue.
+  const stream = getClient().messages.stream({
+    model: MODEL,
+    max_tokens: 24000,
+    system,
+    tools: [SCORECARD_TOOL],
+    tool_choice: { type: "tool", name: "call_scorecard" },
+    messages: [
+      {
+        role: "user",
+        content: `Run TOOL 2 -- the CALL SCORECARD -- on this Scale Army AE call transcript, per the rubric.
+
+Score exactly these ${aiCategories.length} categories, in this order, using these exact keys:
+${categoryList}
+
+Respect the rubric's category ownership rules and its boundary rule: never deduct for the same behavior in two categories. Quote short verbatim transcript evidence in strengths/deductions wherever possible. For every genuine objection (per the rubric's own definition), record what it was, what the rep did, which formula was attempted (named exactly as the rubric does, or "None"), and a rating. List every instance of every behavior the rubric says must be flagged -- do not invent flags it doesn't call for.${excludeLine}
+
+Transcript:
+
+${transcriptText(transcript)}`,
+      },
+    ],
+  });
+
+  const message = await stream.finalMessage();
+  const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+  if (!toolUse) throw new Error("Claude did not return a tool_use block for call_scorecard.");
+  return toolUse.input as ScorecardCategoriesOutput;
+}
+
+// Clamp to the range the rubric gives this category, not an assumed 0-10.
+function clampCategoryScore(n: unknown, max: number): number {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  return Math.min(max, Math.max(0, Math.round(v * 10) / 10));
+}
+
+export async function generateScorecard(transcript: TranscriptChunk[]): Promise<ScorecardResult> {
+  const rubric = readConfigDoc("scorecard-rubric.md");
+  const structure = parseScorecardStructure(rubric);
+  const system = scorecardSharedSystem(rubric, structure);
+
+  const [extraction, scorecard] = await Promise.all([
+    runSqlCheck(system, transcript),
+    runScorecardCategories(system, transcript, structure),
+  ]);
+
+  // Normalize categories against the rubric: the categories it defines, in
+  // document order, each clamped to its own point value. A category the
+  // model dropped shows up as 0 with a visible note rather than silently
+  // shrinking the denominator.
+  const byKey = new Map(scorecard.categories.map((c) => [c.key, c]));
+  const categories: ScorecardCategoryScore[] = structure.aiCategories.map(({ key, name, max }) => {
+    const c = byKey.get(key);
+    return {
+      key,
+      name,
+      max,
+      score: clampCategoryScore(c?.score, max),
+      summary: c?.summary || "Not returned by scorer.",
+      strengths: Array.isArray(c?.strengths) ? c.strengths : [],
+      deductions: Array.isArray(c?.deductions) ? c.deductions : [],
+    };
+  });
+
+  const overall = Math.round(categories.reduce((sum, c) => sum + c.score, 0) * 10) / 10;
+
+  return {
+    rep_name: extraction.rep_name,
+    client_name: extraction.client_name,
+    company_context: extraction.company_context,
+    roles_discussed: extraction.roles_discussed,
+    inputs_used: "Transcript only",
+    sql: extraction.sql,
+    categories,
+    reviewer_categories: structure.reviewerCategories.map(({ key, name, max }) => ({ key, name, max })),
+    objection_details: scorecard.objection_details,
+    flags: scorecard.flags,
+    coaching_focus: scorecard.coaching_focus,
+    went_well: scorecard.went_well,
+    needs_improvement: scorecard.needs_improvement,
+    overall_score: overall,
+    max_score: structure.aiMaxScore,
+    total_max_score: structure.totalMaxScore,
+    pass_threshold: structure.passThreshold,
+  };
 }
