@@ -3,12 +3,14 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../lib/authOptions";
 import { getSession, sessionTitle } from "../../../lib/sessions";
+import { getLatestScorecard } from "../../../lib/scorecards";
 import { describeSalaryAdjustment } from "../../../lib/pricing";
 import { colors } from "../../../lib/theme";
 import { Card, Badge } from "../../../components/ui";
 import { SummaryPanel } from "./summary-panel";
 import { RecordingPanel } from "./recording-panel";
 import { TranscriptPanel } from "./transcript-panel";
+import { ScorecardPanel } from "./scorecard-panel";
 import { DeleteSessionButton } from "../delete-session-button";
 
 function money(n: number | null): string {
@@ -19,6 +21,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
   const authSession = await getServerSession(authOptions);
   const session = await getSession(params.id);
   if (!session) notFound();
+  const scorecard = await getLatestScorecard(params.id);
 
   return (
     <main style={{ maxWidth: "800px", margin: "0 auto", padding: "3rem 1.5rem" }}>
@@ -133,6 +136,8 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
           })}
         </Card>
       )}
+
+      <ScorecardPanel scorecard={scorecard} />
 
       <TranscriptPanel
         sessionId={session.id}

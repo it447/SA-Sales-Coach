@@ -329,3 +329,76 @@ export interface UsaBenchmarkRow {
   seniority: string;
   salary: number;
 }
+
+// ---------------------------------------------------------------------------
+// Call Scorecard — ported from the standalone ScoreCardApp, scored against
+// the exact same rubric (config/scorecard-rubric.md). See lib/scorecardAI.ts
+// for how these get generated and lib/scorecardStructure.ts for how the
+// rubric doc's categories/points/pass-mark get parsed.
+// ---------------------------------------------------------------------------
+
+export interface SqlCriterion {
+  label: string;
+  status: "yes" | "no" | "unclear";
+  note: string;
+}
+
+export interface SqlCheck {
+  status: "Yes" | "No" | "Unclear";
+  criteria: SqlCriterion[];
+  disqualifiers: string[];
+  summary: string;
+}
+
+export interface ScorecardCategoryScore {
+  key: string;
+  name: string;
+  score: number;
+  max: number;
+  summary: string;
+  strengths: string[];
+  deductions: string[];
+}
+
+/** A category the rubric reserves for a human reviewer — carried so the UI can show it, never AI-scored. */
+export interface ScorecardReviewerCategory {
+  key: string;
+  name: string;
+  max: number;
+}
+
+export interface ScorecardObjectionDetail {
+  objection: string;
+  rep_response: string;
+  formula_attempted: string;
+  rating: string;
+  reason: string;
+}
+
+export interface ScorecardResult {
+  rep_name: string;
+  client_name: string;
+  company_context: string;
+  roles_discussed: string[];
+  inputs_used: string;
+  sql: SqlCheck;
+  categories: ScorecardCategoryScore[];
+  reviewer_categories: ScorecardReviewerCategory[];
+  objection_details: ScorecardObjectionDetail[];
+  flags: string[];
+  coaching_focus: string;
+  went_well: string[];
+  needs_improvement: string[];
+  overall_score: number;
+  max_score: number;
+  total_max_score: number;
+  pass_threshold: number;
+}
+
+/** A generated scorecard as stored/returned for a session — null until scoring has run. */
+export interface CallScorecard {
+  id: string;
+  sessionId: string;
+  createdAt: string;
+  result: ScorecardResult;
+}

@@ -107,6 +107,28 @@ create trigger trg_enforce_lock_before_jds
   execute function enforce_lock_before_jds();
 
 -- ---------------------------------------------------------------------------
+-- call_scorecards
+--
+-- One row per scored call, generated automatically right after the cleaned
+-- transcript is ready (see /api/sessions/:id/cleanup-transcript). Scored
+-- against config/scorecard-rubric.md -- the exact same rubric the standalone
+-- ScoreCardApp used -- via lib/scorecardAI.ts. `result` carries the full
+-- ScorecardResult (see lib/types.ts); the handful of real columns exist so
+-- the dashboard can filter/sort without unpacking jsonb every time.
+-- ---------------------------------------------------------------------------
+create table if not exists call_scorecards (
+  id            uuid primary key default gen_random_uuid(),
+  session_id    uuid not null references call_sessions (id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  overall_score numeric,
+  max_score     numeric,
+  sql_status    text,
+  result        jsonb not null
+);
+
+create index if not exists call_scorecards_session_id_idx on call_scorecards (session_id);
+
+-- ---------------------------------------------------------------------------
 -- google_connections
 --
 -- One row per rep who's connected their Google account for Meet recording
