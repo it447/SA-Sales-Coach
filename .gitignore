@@ -8,3 +8,7 @@ extension/deal-assistant-extension.zip
 .env.local
 .DS_Store
 npm-debug.log*
+
+# Local Claude Code state (background-agent worktrees, session scratch) --
+# never project source, never meant to be committed.
+.claude/
