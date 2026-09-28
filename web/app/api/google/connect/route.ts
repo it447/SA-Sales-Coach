@@ -1,11 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../../../lib/authOptions";
 
 /**
- * GET /api/google/connect?repEmail=... — the extension popup links here so
- * a rep can grant Meet-recording control over their own Google account.
- * Redirects straight to Google's consent screen; app/api/google/callback
- * handles the return trip.
+ * GET /api/google/connect — visiting this URL directly grants Meet-
+ * recording control over the visitor's own Google account. Redirects
+ * straight to Google's consent screen; app/api/google/callback handles
+ * the return trip. Nothing in the app currently links here (the
+ * extension's old "Connect Google Account" button was removed, since
+ * tabCapture recording covers most calls without it) -- this stays live
+ * for the "Find recording" dashboard fallback, which still needs a rep's
+ * Google connection to work.
+ *
+ * Gated by the dashboard's own Google login (authOptions), which already
+ * restricts sign-in to @scalearmy.com accounts -- repEmail is read from
+ * THAT verified session, never from a client-supplied query param. This
+ * used to accept `?repEmail=` directly from the URL with no auth at all,
+ * which meant anyone (no login, no API key) could complete Google's
+ * consent flow with their OWN Google account and have saveConnection()
+ * silently overwrite a real rep's stored refresh/access token just by
+ * guessing their @scalearmy.com address -- a full account-hijack with no
+ * prerequisite beyond knowing the email format.
  *
  * meetings.space.settings (turn recording on) and meetings.space.readonly
  * (list conference records / find the recording afterward) are both
@@ -36,10 +52,11 @@ function signState(repEmail: string): string {
   return `${payload}.${sig}`;
 }
 
-export async function GET(request: NextRequest) {
-  const repEmail = request.nextUrl.searchParams.get("repEmail");
+export async function GET() {
+  const session = await getServerSession(authOptions);
+  const repEmail = session?.user?.email;
   if (!repEmail) {
-    return NextResponse.json({ error: "repEmail query param is required." }, { status: 400 });
+    return NextResponse.json({ error: "You must be signed in to connect a Google account." }, { status: 401 });
   }
 
   const redirectUri = `${process.env.NEXTAUTH_URL}/api/google/callback`;

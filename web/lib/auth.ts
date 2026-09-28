@@ -1,4 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+
+/** Constant-time string equality, so a wrong guess can't be timed byte-by-byte. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // timingSafeEqual throws on mismatched lengths -- pad to equal length first
+  // so the length check itself doesn't leak timing, then still fail the
+  // comparison if the original lengths actually differed.
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 /**
  * Simple shared-secret auth for the internal API — the extension sends
@@ -21,7 +36,7 @@ export function requireAuth(request: NextRequest): NextResponse | null {
   const header = request.headers.get("authorization") ?? "";
   const token = header.replace(/^Bearer\s+/i, "");
 
-  if (token !== expected) {
+  if (!safeEqual(token, expected)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
